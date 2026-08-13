@@ -1,0 +1,915 @@
+# Atelier « démo/effetgraphique »  (Familiarisation à `minifb`)
+
+### Programmation d'effets demoscene en C
+
+---
+
+> Cet atelier demande de bien connaître les bases en C (pointeurs, allocation dynamique, arithmétique de base). Il montre comment mettre en œuvre des effets classiques et faciles à appréhender avec une bibliothèque minimaliste d’affichage d’images : `minifb`. Vous pourrez ensuite transposer ce qui est vu ici dans une autre bibliothèque (SDL3, Raylib…) ou dans un autre langage associé au framework ad hoc.
+>
+> Par ailleurs contrairement à d’autres ateliers je ne détaillerai pas point par point tous les algorithmes ou implémentations, c’est un atelier de niveau avancé où vous devez avoir quelques bases ou expérience dans la programmation, la programmation graphique ou de jeux vidéos.
+>
+> Cet atelier sera suivi d’un **second atelier qui présentera uniquement la théorie et les principes**  sous-tendant différents effets graphiques (effet « feu » et autre effets de particules, distorsions 2D, effets sur des sprites ou scrollings, fractales, glitch, 3D, etc.) ou des techniques de traitement d’image (normalisation, filtres morphologiques et de convolution). Charge à vous de les implémenter à partir de ce que nous auront vu ici (thème de la GameJam 2026).
+
+## Table des matières
+
+1. [Installation et setup](#1-installation-et-setup)
+2. [API de minifb](#2-api-de-minifb)
+3. [Exemple 1 : Image fixe et primitives](#3-exemple-1--image-fixe-et-primitives)
+4. [Exemple 2 : Animation de primitives](#4-exemple-2--animation-de-primitives)
+5. [Effet 1 : Scrolling et sinus scroller](#5-effet-1--scrolling-et-sinus-scroller)
+6. [Effet 2 : Starfield 2D](#6-effet-2--starfield-2d)
+7. [Effet 3 : Starfield avancé](#7-effet-3--starfield-avancé)
+8. [Effet 4 : Palette cycling](#8-effet-4--palette-cycling)
+9. [Effet 5 : Tunnel](#9-effet-5--tunnel)
+10. [Effet 6 : Plasma](#10-effet-6--plasma)
+
+## 1. Installation et setup
+
+### Philosophie de minifb
+
+Avant d'installer quoi que ce soit, il est utile de présenter [`minifb`](https://github.com/emoon/minifb) (Mini FrameBuffer). C’est une bibliothèque en C à **responsabilité unique** : ouvrir une fenêtre système et y afficher un tableau de pixels. C'est tout. Il n'y a pas de gestion audio, pas de chargement de sprites ou d’image, pas de moteur de scène. Cette austérité est volontaire car elle a un intérêt pédagogique : on fait tout soi-même (on apprend donc toutes les opérations élémentaires de traitement), et elle impose de penser en termes de buffer mémoire, exactement comme le faisaient les programmeurs demoscene sur Amiga ou DOS.
+
+Imaginez simplement que l’écran est similaire à grande feuille de papier quadrillé où chaque case est un pixel. Une image à afficher sera simplement un tableau d'entiers en mémoire, et vous y écrivez des valeurs qui correspondront à des niveaux de gris (1 entier par case) ou des couleurs (3 entiers par case). Lorsque vous appelez la fonction d'affichage de `minifb`, ce tableau est tout bêtement copié vers l'écran. C'est le cycle fondamental de toute démo (et jeu ou autre application graphique dynamique) : **calculer → copier → afficher → recommencer**.
+Si on souhaite afficher des images animées, il faudra simplement recalculer l’image entre chaque affichage. Sur de machines aux ressources limitées il fallait faire preuve d’ingéniosité pour arriver à faire les calculs suffisamment rapidement pour ne pas ralentir la fréquence d’affichage et maintenir une animation fluide.
+
+> Un autre intérêt de `minifb` dans notre cas est aussi que comme il s’agit d’une API très simple, elle sera assimilable en quelques minutes, nous pourrons alors nous concentrer sur le traitement d’image lui-même.
+
+Voyons d’abord comment installer `minifb`. 
+
+### Prérequis système (Linux/Debian)
+
+> Le readme sur le dépôt est très complet, j’indique ici les étapes principales pour gagner du temps dans l’atelier, mais n’hésitez pas à y jeter un œil, d’autant que vous aurez l’assurance que la procédure sera mise à jour sur le dépôt officiel.
+
+Vous allez avoir bdesoin des dépendances suivantes (vous aurez peut-être déjà installé certaines ou toutes ces dépendances si vous développez déjà des projets en C) : 
+
+```bash
+sudo apt update
+sudo apt install build-essential cmake pkg-config libxkbcommon-dev
+```
+
+* `build-essential` : GCC, make, headers système
+* `cmake` : système de build utilisé par `minifb`. C’est un **générateur de système de build** : on va écrire un fichier qui décrit notre projet (sources, dépendances, cibles…), CMake va lire ce fichier et générer les fichiers de build adaptés au système sur lequel on l’exécute (Linux, Windows…, p. ex. il va générer un `MakeFile` sous Linux), et l’outil du système (`make` sur Linux p. ex.) va lancer la compilation. C’est donc un outil pratique pour développer un projet qui sera susceptible d’être build sur différentes machines avec des systèmes différents à partir du même fichier décrivant le projet.
+* `pkg-config` : résolution des dépendances à la compilation
+* `libxkbcommon-dev` : gestion des keycodes clavier
+
+Ensuite il faudra installer des dépendances différentes selon le protocole de serveur d’affichage que votre système utilise :
+
+* **Wayland** (la plupart des distribution actuelels, notamment Ubuntu/Debian) :
+
+```bash
+sudo apt install libwayland-dev libxkbcommon-dev wayland-protocols
+```
+
+* **X11** (peu probable pour une machine dotée d’un bureau, à moins d’avoir installé un système minimaliste avec un serveur X – c’est mon cas par exemple car j’utilise OpenBox) :
+
+```bash
+sudo apt install libx11-dev libgl1-mesa-dev libxrandr-dev
+```
+
+> 1. Si vous ne savez pas le protocole en œuvre sur votre système, regardez la valeur de la variable d’environnement `$XDG_SESSION_TYPE` dans le terminal avec `echo`. 
+> 2. Par ailleurs Ubuntu permet de lancer une session X11 (choisir en cliquant sur le petit engrenage en bas à droite sur l’écran de connexion).
+> 3. Si vous utilisez WSL2, le support d'une fenêtre graphique dépendra du setup WSLg. Si WSLg est actif (c’est le cas sous Windows 11), ça marchera directement via Wayland/X11. Sinon il faudra aussi installer un serveur X externe (VcXsrv, etc.).  Testez avec `echo $DISPLAY` : si la variable est vide, WSLg n'est pas actif.
+
+### Structure de projet recommandée
+
+Avant d'écrire une ligne de code, prenez le temps de structurer votre projet. Un projet bien organisé dès le départ évite les problèmes de compilation et facilite l'ajout d'effets successifs. Notre projet va s’organiser selon une arborescence qui ressemble à ça (ne créez rien pour le moment, on va le faire petit à petit dans les étapes suivantes) :
+
+```
+atelier_demo/
+├── CMakeLists.txt
+├── deps/
+│   └── minifb/          ← dépôt minifb (submodule) cf. ci-dessous
+└── src/
+    ├── main.c
+    ├── effets/
+    │   ├── starfield.c
+    │   ├── plasma.c
+    │   └── ...
+    └── utils/
+        └── primitives.c
+```
+
+Commencez par créer le dossier de votre projet en amorçant un dépôt avec `git`, puis ajoutez `minifb` comme sous-module :
+
+```bash
+git init atelier_demo
+cd atelier_demo
+git submodule add https://github.com/emoon/minifb.git deps/minifb
+```
+
+### CMakeLists.txt minimal
+
+Plus nous avons dit que CMake lit un fichier qui décrit le projet pour générer par exemple le Makefile qui va bien si on est sous Linux. Le nom de ce fichier est `CMakeLists.txt` et il est situé à la racine du projet. Nous  allons  créer un `CMakeLists.txt` minimaliste pour démarrer. Notez que `minifb` utilise lui-même CMake, ce qui simplifie considérablement l'intégration : il suffit d'inclure son sous-répertoire et de lier la cible.
+
+```cmake
+cmake_minimum_required(VERSION 3.15)
+project(atelier_minifb C CXX) # indique les langages utilisés : C et C++
+
+set(CMAKE_C_STANDARD 11)
+
+# Inclusion de minifb comme sous-projet
+add_subdirectory(deps/minifb)
+
+# Exécutable (démo)
+add_executable(demo src/main.c)
+target_link_libraries(demo minifb)
+```
+
+> Notre projet et cet atelier sera en C, mais on indique l’utilisation de C++ car `minifb` utilise un peu de C++ pour les callbacks (que l’on verra dans la gestion des inputs claviers ou souris)
+
+Quand on voudra compiler, il suffira alors d’écrire :
+
+```bash
+mkdir build && cd build
+cmake ..
+make # on compile avec make
+./demo # pour lancer la démo qu’on vient de compiler
+```
+
+Une fois ceci fait, passons à l’API de `minifb`, on en profitera pour tester tout de suite notre setup en affichant simplement un pixel dans une fenêtre.
+
+## 2. API de `minifb`
+
+### Vue d'ensemble
+
+Comme on l’a dit en préambule, l'API de `minifb` est délibérément réduite. On peut regrouper ses fonctions en quatre collections : **gestion de fenêtre**, **affichage du buffer**, **gestion des événements (input)**, et **temporisation**. Voyons ci-dessous les fonctions que vous utiliserez dans cet atelier.
+
+Je vous présente quelques fonction de chaque collection, vous trouverez ensuite le contenu complet d’un `main.c` utilisant ces fonctions à la fin de cette section. Il vous servira de squelette de base pour la suite.
+
+### Créer une fenêtre
+
+On crée une fenêtre avec la fonction `mfb_open_ex()` :
+
+```c
+#include <MiniFB.h>
+
+struct mfb_window *win = mfb_open_ex("Titre", LARGEUR, HAUTEUR, MFB_WF_RESIZABLE);
+if (win == NULL) {
+    // La création a échoué (résolution trop grande, display absent, etc.)
+    return 1;
+}
+```
+
+`mfb_open_ex` retourne un pointeur vers une structure `mfb_window` dont le contenu interne est géré exclusivement par `minifb`. Vous n'avez jamais besoin d’accéder directement aux champs de cette structure. On conserve ce pointeur dans une variable et vous le passerez à toutes les fonctions `minifb`  qui en auront besoin pour agir dessus (`mfb_update_ex`, `mfb_wait_sync`, `mfb_close`, etc.). Ce pointeur est le « *handle* » qui identifie votre fenêtre et que vous utiliserez pour la manipuler.
+
+C'est le même principe que `fopen` : quand on ouvre un fichier la fonction vous retourne un `FILE *` que vous ne lisez jamais directement, mais que vous passez à `fread`, `fwrite`, `fclose`. Ici c'est un `mfb_window *` que vous passez à `mfb_update_ex`, `mfb_wait_sync`, etc.
+
+Le quatrième paramètre de `mfb_open_ex` est un masque de drapeaux (ici on a choisit le masque `MFB_WF_RESIZABLE`. Voici les masques les plus utiles :
+
+| Drapeau                  | Effet                                      |
+|--------------------------|--------------------------------------------|
+| `0`                      | Fenêtre fixe, non redimensionnable         |
+| `MFB_WF_RESIZABLE`       | Fenêtre redimensionnable                   |
+| `MFB_WF_FULLSCREEN`      | Plein écran matériel                       |
+| `MFB_WF_FULLSCREEN_DESKTOP` | Plein écran fenêtré (résolution du bureau) |
+
+#### Code pour tester
+
+Voici un bout de code très simple qui permettra de tester l’installation de `minifb` et sa compilation : ce programme ouvre une fenêtre noire, vous n’avez qu’à la fermer (avec la touche `echap` ou le bouton de fermeture) :
+
+```c
+#include <MiniFB.h>
+
+int main(void) {
+    struct mfb_window *win = mfb_open_ex("Test minifb", 320, 200, MFB_WF_RESIZABLE);
+    if (!win) return 1;
+
+    uint32_t buffer[320 * 200] = {0};  // fond noir, alloué sur la pile (pas de mallco())
+
+    while (mfb_wait_sync(win)) {
+        if (mfb_update_ex(win, buffer, 320, 200) != MFB_STATE_OK)
+            break;
+    }
+
+    return 0;
+}
+```
+
+> Note sur la ligne : `uint32_t buffer[320 * 200] = {0};`
+> Avec  une résolution de 320×200, le buffer fait juste une taille de 250 Ko, qu’on peut très bien stocké dans la pile. Dès que
+> la résolution augmentera avec des buffers de plus grande dimension, ou si on ajoute des buffers supplémentaires, il faudra réserver des espaces mémoires dans le tas (*heap*) avec malloc().
+
+Compilez et lancez l’exécutable en suivant les instructions données en fin de section précédente (sur CMake) :
+
+```bash
+mkdir build && cd build ## si le dossier de build n’existe pas déjà on le crée
+cmake .. # on génère le Makefile (entre autre) à partir du fichier situé dans le répertoire parent
+make # on lance make pour la compilation
+./demo # on lance l’exécutable
+```
+
+Si tout se passe bien (l’exécutable ouvre une fenêtre vide de dimension 320×200), passez à la suite.
+
+### Créer et gérer le buffer de pixels
+
+Le buffer est simplement un tableau d'entiers non signés 32 bits. Chaque entier encode un pixel en format ARGB (ou XRGB, le canal alpha est ignoré à l'affichage).
+
+On suppose ici que vous êtes assez familier avec l’encodage des couleurs à l’aide de 3 couches ou canaux RGB (et une quatrième couche de transparence ou canal alpha).
+
+#### Encodage d'un pixel sur 32 bits
+
+Un `uint32_t` contient 4 octets (4×8=32), on dispose donc d’un octet d’une valeur de 0 à 255 par canal, organisés de l'octet de poids fort vers l'octet de poids faible :
+
+```
+bits :  31..24   23..16   15..8    7..0
+canal :    A        R       G        B
+```
+
+- En format **ARGB** : le canal alpha (transparence) occupe les bits 31–24. 
+- En format **XRGB** : les bits 31–24 sont simplement inutilisés (X = ignoré). C'est équivalent à ARGB avec alpha = 0.
+
+En pratique ça ne fait aucune différence car dans tous les cas `minifb` ignore le canal de transparence à l'affichage car la fenêtre est toujours opaque.
+
+`MFB_RGB(r, g, b)` construit la valeur correctement selon le backend : 
+
+```c
+// Encodage d’un pixel sur 32bits à partir des valeurs R, G et B en utilisant les opérateurs sur les bits :
+uint32_t pixel = (r << 16) | (g << 8) | b;
+// C’est l’opération réalisée par MFB_RGB(r, g, b)
+```
+
+> C’est le backend (X11, Wayland, OpenGL, Metal…) qui dicte l'ordre des octets attendu, et `MFB_RGB()` gère cet ordre pour nous. C’est pour cela que c’est une bonne pratique de toujours passer par `MFB_RGB` plutôt que de construire la valeur à la main. Gardez bien à l’esprit que l’existence de cette macro est justifiée par le fait que même sur x86 Linux, deux backends différents pourraient attendre des ordres différents.
+
+#### Création du buffer
+
+Il s’agit simplement de réserver un espace dynamique qui corespond à la taille du buffer (qui contiendra des entiers 32 bits non signés, comme vu précédemment) :
+
+```c
+#define LARGEUR  320
+#define HAUTEUR  200
+
+uint32_t *buffer = malloc(LARGEUR * HAUTEUR * sizeof(uint32_t));
+```
+
+L'accès à un pixel de coordonnées `(x, y)` se fait par l'indice `y * LARGEUR + x`. C'est la représentation **row-major** : les pixels d'une même ligne sont contigus en mémoire.
+
+```c
+// Écrire un pixel rouge à (x=10, y=5)
+buffer[5 * LARGEUR + 10] = MFB_RGB(255, 0, 0);
+```
+
+### Remplir le buffer
+
+Effacer le buffer (fond noir) en une ligne :
+
+```c
+memset(buffer, 0, LARGEUR * HAUTEUR * sizeof(uint32_t));
+```
+
+Pour une couleur de fond arbitraire, il faut une boucle car `memset` ne travaille qu'octet par octet :
+
+```c
+uint32_t fond = MFB_RGB(30, 0, 60);  // violet foncé
+for (int i = 0; i < LARGEUR * HAUTEUR; i++) {
+    buffer[i] = fond;
+}
+```
+
+### Manipulation des couleurs/pixels
+
+#### Extraire les canaux d'un pixel existant
+
+L'opération inverse à `MFB_RGB()` est utile dès qu'on manipule des couleurs (interpolation, assombrissement, mélange, on  verra ça plus tard dans l’atelier) :
+
+```c
+uint32_t pixel = buffer[y * LARGEUR + x];
+
+uint8_t r = (pixel >> 16) & 0xFF;
+uint8_t g = (pixel >>  8) & 0xFF;
+uint8_t b = (pixel      ) & 0xFF;
+// uint8_t a = (pixel >> 24) & 0xFF;  // ignoré par minifb
+```
+
+#### Niveaux de gris
+
+Un pixel est gris lorsque R = G = B. On peut donc simplement écrire :
+
+```c
+uint8_t lum = 128;  // 0 = noir, 255 = blanc
+uint32_t gris = MFB_RGB(lum, lum, lum);
+```
+
+Pour convertir une couleur existante en niveau de gris, la méthode perceptuelle (pondérée selon la sensibilité de l'œil humain aux différentes longueurs d'onde) donne un résultat plus naturel que la moyenne simple :
+
+```c
+uint8_t lum = (uint8_t)(0.299f * r + 0.587f * g + 0.114f * b);
+uint32_t gris = MFB_RGB(lum, lum, lum);
+```
+
+Ces coefficients correspondent à la pondération de la luminance en espace sRGB (standard ITU-R BT.601) : le vert contribue beaucoup plus que le bleu à la luminosité perçue.
+
+### Afficher le buffer
+
+Pour afficher le buffer on va créer une variable de type `mfb_update_state` qui va stocker le résultat de la fonction `mfb_update_ex()`.
+
+```c
+mfb_update_state etat = mfb_update_ex(win, buffer, LARGEUR, HAUTEUR);
+if (etat != MFB_STATE_OK) {
+    break; // La fenêtre a été fermée
+}
+```
+
+`mfb_update_ex` copie le contenu de `buffer` vers la fenêtre et traite les événements en attente. Elle retourne `MFB_STATE_OK` tant que la fenêtre est ouverte. Si l'utilisateur ferme la fenêtre ou appuie sur `Échap`, elle retourne une valeur différente.
+
+### Synchronisation temporelle
+
+Sans synchronisation, votre boucle tourne aussi vite que le processeur le permet, jusqu’à des milliers de frames par seconde sur nos CPU modernes très peformants. Cela consomme inutilement des ressources et rend les animations imprévisibles selon la machine. `minifb` résout ce problème à l’aide de deux fonctions, une fonction `mfb_set_target_fps()` qui fixe comme son nom l’indique le taux de rafraîchissement (*framerate*) cible (en général 60FPS), et une fonction `mfb_wait_sync()` qui va temporiser l’exécution du programme pour que le FPS correspond au FPS cible définit auparavant :
+
+```c
+mfb_set_target_fps(60);  // avant la boucle principale
+
+// Dans la boucle (win est le pointeur définit à la création de la fenêtre) :
+while (mfb_wait_sync(win)) {
+    // ...
+}
+```
+
+`mfb_wait_sync` bloque jusqu'au prochain intervalle de frame calculé à partir du FPS cible, puis retourne `true` si la fenêtre est toujours ouverte.
+
+### Timer haute résolution
+
+Pour faciliter la synchronisation et mesurer le temps écoulé et calculer des animations frame-indépendantes, on dispose de fonctions qui nous permettent de gérer un compteur (ou chronomètre) :
+
+```c
+struct mfb_timer *chrono = mfb_timer_create();
+mfb_timer_reset(chrono);
+
+// Dans la boucle :
+double t = mfb_timer_now(chrono);   // secondes depuis la  création/reset
+double dt = mfb_timer_delta(chrono); // secondes depuis le dernier appel à delta
+```
+
+### Input clavier
+
+Même si l’objectif n’est pas de développer un jeu ou une application où l’interactivité est importante, il pourra être intéressant de contrôler les effets à l’aide de commandes (accélaration, zoom, direction…). 
+
+#### Callbacks
+
+`minifb` propose une gestion des contrôles et utilise un système de **callbacks** pour les événements. On enregistre une fonction qui sera appelée automatiquement lors d'un événement :
+
+```c
+void sur_clavier(struct mfb_window *win, mfb_key touche,
+                 mfb_key_mod modificateur, bool appuyee) {
+    if (touche == KB_KEY_ESCAPE) {
+        mfb_close(win);
+    }
+    if (touche == KB_KEY_SPACE && appuyee) {
+        // action à l’appui de la barre espace
+    }
+}
+
+// Enregistrement du callback, avant la boucle principale
+mfb_set_keyboard_callback(win, sur_clavier);
+```
+
+#### Touches modificatrices
+
+Dans la fonction précédente, on a déclaré un argument `modificateur` de type `mfb_key_mod`. De quoi s’agit-il ?
+
+`mfb_key_mod` est un masque de bits indiquant quelles touches modificatrices sont maintenues au moment de l'événement (une touche qu’on va associer lors de l’appui, comme contrôle, shift, etc.). Les valeurs sont combinables avec `|` et testables avec `&` :
+
+```c
+void sur_clavier(struct mfb_window *win, mfb_key touche,
+                 mfb_key_mod mod, bool appuyee) {
+
+    // Tester un modificateur seul
+    if (mod & KB_MOD_SHIFT) { /* Shift maintenu */ }
+    if (mod & KB_MOD_CONTROL) { /* Ctrl maintenu */ }
+    if (mod & KB_MOD_ALT) { /* Alt maintenu */ }
+
+    // Tester une combinaison : Ctrl+S
+    if (touche == KB_KEY_S && appuyee && (mod & KB_MOD_CONTROL)) {
+        // sauvegarder
+    }
+
+    // Ignorer les modificateurs (cas le plus fréquent dans un effet demoscene)
+    (void)mod;
+}
+```
+
+Les modificateurs disponibles dans `minifb` : `KB_MOD_SHIFT`, `KB_MOD_CONTROL`, `KB_MOD_ALT`, `KB_MOD_SUPER` (touche Windows/Cmd). On les utilisera rarement dans le contexte d’une démo, mais connaître leur existence est toujours une bonne chose, et ça peut parfois être utile par exemple si on crée un visualiseur 3D où on peut avoir besoin de contrôles complexes comme par exemple faire une rotation spécifique à chacun des trois axes, chaque touche spéciale peut ainsi être associée à un axe en particulier.
+
+#### Interrogation directe
+
+Enfin, on peut utiliser une méthode plus simple qui passe par l’interrogation directe de l'état des touches (plus simple pour les effets) :
+
+```c
+const uint8_t *touches = mfb_get_key_buffer(win);
+if (touches[KB_KEY_LEFT]) {
+    // flèche gauche maintenue
+}
+```
+
+### Input souris
+
+#### Position de la souris
+
+```c
+int x = mfb_get_mouse_x(win);
+int y = mfb_get_mouse_y(win);
+```
+
+Ces fonctions retournent la position courante du curseur en pixels dans la fenêtre, en interrogation directe (pas de callback nécessaire). Utile pour faire réagir un effet à la position de la souris sans surcharger le code avec des callbacks.
+
+#### Callback déplacement de la souris
+
+```c
+void sur_souris_move(struct mfb_window *win, int x, int y) {
+    // appelé à chaque déplacement du curseur
+}
+
+mfb_set_mouse_move_callback(win, sur_souris_move);
+```
+
+#### Callback boutons de la souris
+
+```c
+void sur_souris_bouton(struct mfb_window *win, mfb_mouse_button bouton,
+                       mfb_key_mod mod, bool appuyee) {
+    if (bouton == MOUSE_BTN_1 && appuyee) { /* clic gauche */ }
+    if (bouton == MOUSE_BTN_2 && appuyee) { /* clic droit  */ }
+    if (bouton == MOUSE_BTN_3 && appuyee) { /* clic milieu */ }
+}
+
+mfb_set_mouse_button_callback(win, sur_souris_bouton);
+```
+
+Le paramètre `mod` fonctionne de la même façon que pour le clavier : il indique les touches modificatrices maintenues au moment du clic.
+
+#### Callback molette de la souris
+
+Dans le contexte de l'atelier, la molette est susceptible d’être particulièrement pratique pour faire varier un paramètre d'effet en temps réel (vitesse du starfield, amplitude du plasma, etc.) sans toucher au clavier.
+
+```c
+void sur_molette(struct mfb_window *win, float delta_x, float delta_y) {
+    // delta_y > 0 : molette vers le haut, < 0 : vers le bas
+    // delta_x : défilement horizontal (souris avec molette inclinable)
+}
+
+mfb_set_mouse_scroll_callback(win, sur_molette);
+```
+
+### Squelette complet d'un programme minifb
+
+Voici le squelette de `main.c` que vous réutiliserez pour tous les effets que nous allons créer. Prenez le temps de bien le comprendre avant de passer aux exemples.
+
+```c
+#include <MiniFB.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <math.h>
+
+#define LARGEUR  320
+#define HAUTEUR  200
+
+int main(void) {
+    // 1. Création de la fenêtre
+    struct mfb_window *win = mfb_open_ex("Demo", LARGEUR, HAUTEUR, MFB_WF_RESIZABLE);
+    if (!win) return 1;
+
+    // 2. Allocation du buffer
+    uint32_t *buffer = malloc(LARGEUR * HAUTEUR * sizeof(uint32_t));
+    if (!buffer) { mfb_close(win); return 1; }
+
+    // 3. Initialisation du timer et du FPS cible
+    struct mfb_timer *chrono = mfb_timer_create();
+    mfb_set_target_fps(60);
+
+    // 4. Boucle principale
+    while (mfb_wait_sync(win)) {
+        double t = mfb_timer_now(chrono);
+
+        // --- Effacer le buffer ---
+        memset(buffer, 0, LARGEUR * HAUTEUR * sizeof(uint32_t));
+
+        // --- Calculer et dessiner l'effet ---
+        // ... votre code ici ...
+
+        // --- Afficher ---
+        mfb_update_state etat = mfb_update_ex(win, buffer, LARGEUR, HAUTEUR);
+        if (etat != MFB_STATE_OK) break;
+    }
+
+    // 5. Nettoyage
+    mfb_timer_destroy(chrono);
+    free(buffer);
+    return 0;
+}
+```
+
+Maintenant que vous êtes familiarisé avec l’API de `minifb` (vous trouverez une mini cheat sheet récapitulant les fonctions présentées en annexe de ce document), on  va la mettre en application en développant quelques exemples pratiques :
+
+1. Afficher un buffer (fixe) sur lequel on va tracer des formes simples en créant nos primitives (lignes, rectangles, cercles) ce qui sera l’occasion d’apprendre ou de réviser l’algorithme de Bressenham pour dessiner des courbes dans un repère discret. En effet notre buffer étant un tableau, on y « saute » d’un pixel à l’autre, il n‘y a pas de continuité entre les coordonnées des pixels car les coordonnées n‘y sont représentées que par des entiers (= les index des cellules du tableau) et non des réels comme le sont les coordonnées d’un repère en deux dimensions.
+
+2. Afficher un buffer avec de l’animation (on va faire évoluer l’image d’un frame à l’autre), notamment une balle rebondissante
+
+3. Afficher des polices de caractères et réaliser un scrolling et surtout un classique des effets démo rétro : un sinus scroller
+
+4. Un autre grand classique des démo rétro : un champ d’étoiles (starfield)
+5. On enrichit notre champ d’étoile (variation de la vitesse, direction, trainées, couleurs…)
+6. Palette cycling (émulation d’une technique hardware pour créer une animation sans recalculer les pixels)
+7. Effet tunnel (un grand classique)
+8. Effet plasma (un autre grand classique)
+
+## 3. Exemple 1 : Image fixe et primitives
+
+### Objectif
+
+Avant d'animer quoi que ce soit, il faut maîtriser l'écriture dans le buffer. On vous propose dans ce premier exemple de l’atelier d’implémenter la génération d’une image fixe : un fond dégradé et quelques primitives géométriques dessinées par-dessus.
+
+### Penser en primitives logiques
+
+Le but du jeu de cet  atelier (et ce qui se faisait dans la demoscene), c’est de  tout faire from scratch.  On n'utilisera donc pas de bibliothèque graphique qui dessine des lignes ou autre primitive géométrique. Tout notre travailva consister à écrire des valeurs dans `buffer[y * LARGEUR + x]` pour dessiner ce qu’on a envie de dessiner ou rendre des effets graphiques.
+
+ La première étape de notre atelier consiste donc à écrire des fonctions utilitaires de bas niveau que vous réutiliserez dans tous les effets suivants.
+
+Regroupez ces fonctions dans `src/utils/primitives.c` et leur déclaration dans `src/utils/primitives.h`. Cette séparation est importante : les effets qu’on programmera ensuie s'appuieront sur ces primitives sans connaître leur implémentation.
+
+Dans `primitives.h` on va déclarer quelques fonctions pour tracer des primitives, vous pouvez les enrichir selon vos besoins. Ici on propose juste :
+
+- une fonction `dessiner_ligne()`  pour tracer une ligne dans un buffer donné entre deux points et selon une couleur précise (6 arguments)
+- une fonction `dessiner_rect()` pour dessiner un rectangle (contour) dans un buffer donné à partir d’un point donné comme origine et selon une largeur et hauteur, et une couleur (5  arguments)
+- une  fonction `remplir_rect()` pour dessiner un rectangle plein cette fois, selon les mêmes arguments que précédemment. Vous aurez remarqué quand dans la plupart des framework on dispose d’une fonction « dessiner rectangle » et c’est la valeur d’un drapeau qui  indique si le rectangle dessiné est plein ou vide. Si vous préférez vous pouvez implémenter cette stratégie plutôt.
+- enfin une fonction `dessiner_cercle()` pour dessiner un cercle dans un buffer à partir d’un point (centre) et selon un rayon et une couleur (5 arguments)
+- vous pouvez bien sûr ajouter toutes les autres primitives qui vous semblent nécessaire (polygone, triangle…)
+
+Mais avant d’écrire ces fonctions, on a avant tout besoin de dessiner un pixel, car c’est à partir de là que les primitives pourront être tracées. Cette fonction `plot()` va avoir un statut assez particulier : elle sera appelée un grand nombre de fois dès qu’on voudra afficher (écrire) quelque chose dans le buffer, c’est à dire potentiellement au minimum autant de fois que la taille du buffer, et même plus si on superpose les opérations, et ce entre chaque frame. Avec un framerate « normal » de 60 FPS on se rend vite compte qu’il faut optimiser les appels à cette fonction. Pour gagner du temps, plutôt que de l’appeler comme une fonction « normale », on va demander au compilateur de substituer le corps de la fonction à chaque endroit où elle est appelée, elle sera donc exécutée au fil de la lecture du code par la machine. Pour demander cette substitution on va utiliser le mot clef `inline` en C. Cela impose d’écrire la fonction entière dans le header, afin que tout fonction qui en a besoin puisse la trouver (ce qui ne serait pas le cas si on la mettait dans `primitives.c` dont les fonctions ne sont accessibles que par un appel classique, e qui induirait une erreur du compilateur lors de l’édition des liens). On va aussi utiliser le mot clef `static` pour que chaque fichier qui appelle ce header dispose de sa propre copie sans être visible par les autres partie du code (sinon tout est « mélangé » et on aura potentiellement un problème à l’édition des liens aussi).
+
+```c
+// primitives.h
+#ifndef PRIMITIVES_H // prévient l’inclusion multiple si plusieurs fichiers inclus utilisent ce même header
+#define PRIMITIVES_H
+
+#include <stdint.h>
+
+#define LARGEUR 320
+#define HAUTEUR 200
+
+// Dessiner un pixel de façon sécurisée (ignore si hors écran)
+static inline void plot(uint32_t *buf, int x, int y, uint32_t couleur) {
+    if (x >= 0 && x < LARGEUR && y >= 0 && y < HAUTEUR)
+        buf[y * LARGEUR + x] = couleur;
+}
+
+void dessiner_ligne(uint32_t *buf, int x0, int y0, int x1, int y1, uint32_t c);
+void dessiner_rect(uint32_t *buf, int x, int y, int w, int h, uint32_t c);
+void remplir_rect(uint32_t *buf, int x, int y, int w, int h, uint32_t c);
+void dessiner_cercle(uint32_t *buf, int cx, int cy, int r, uint32_t c);
+
+#endif
+```
+
+### Implémentation des primitives
+
+#### Première approche du tracé de ligne
+
+Une fois nos fonctions déclarées dans le header `primitives.h`, écrivont leurs implémentations dans un fichier `primitives.c`. 
+
+On va tracer des lignes continues dans un tableau où on passe d’une cellule (point) à l’autre de manière discrète. Cela va poser des problèmes, que l’on va illustrer avec le code (naïf) suivant (dans le fichier `src/utils/primitives.c`) :
+
+```c
+//primitives.c
+#include "primitives.h"
+#include <stdlib.h>
+
+void dessiner_ligne(uint32_t *buf, int x0, int y0, int x1, int y1, uint32_t c) {
+    // On s'assure de toujours progresser de gauche à droite (x croissant)
+    // Si x0 est à droite de x1, on échange les deux points
+    if (x0 > x1) {
+        int t;       // variable temporaire pour l'échange
+        t = x0; x0 = x1; x1 = t;  // échange des x
+        t = y0; y0 = y1; y1 = t;  // échange des y
+    }
+
+    int dx = x1 - x0;  // variation totale en x (toujours positive après l'échange)
+    int dy = y1 - y0;  // variation totale en y (peut être négative si la ligne descend)
+
+    // À partir de ces variation on peut déterminer la pente de la droite entre les deux points
+    for (int x = x0; x <= x1; x++) {
+        int y = y0 + dy * (x - x0) / dx;
+        plot(buf, x, y, c);
+    }
+}
+```
+
+> La logique « naïve » est la suivante : pour tracer une ligne on a un point de départ (x0, y0) et un point d’arrivée (x1, y1), il suffit donc d’incrémenter les coordonnées du point de départ jusqu’au point d’arrivée (x0 -> x1 et y0 -> y1) en suivant la pente de la droite qui passe par les deux points pour dessiner les points intermédiaires (on fait une interpolation). Ici on suit les x et et on utilise la pente pour calculer le y correspondant.
+
+Il suffit maintenant de l’appeler dans `main.c` :
+
+```c
+// main.c - dessiner_ligne() v1
+
+#include <MiniFB.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include "utils/primitives.h"
+
+int main(void) {
+    struct mfb_window *win = mfb_open_ex("Dessiner ligne naïf", LARGEUR, HAUTEUR, MFB_WF_RESIZABLE);
+    if (!win) return 1;
+
+    uint32_t buffer[LARGEUR * HAUTEUR] = {0};  // fond noir, alloué sur la pile
+
+    dessiner_ligne(buffer, 10, 10, LARGEUR-10, HAUTEUR-10, MFB_RGB(255, 200, 200));
+
+    while (mfb_wait_sync(win)) {
+        if (mfb_update_ex(win, buffer, LARGEUR, HAUTEUR) != MFB_STATE_OK)
+            break;
+    }
+
+    return 0;
+}
+```
+
+Bien sûr  il ne faut pas oublier de modifier `CMakeLists.txt` pour indiquer qu’on a créé `primitives.c` :
+
+```cmake
+cmake_minimum_required(VERSION 3.15)
+project(atelier_minifb C CXX)
+
+set(CMAKE_C_STANDARD 11)
+
+# Inclusion de minifb comme sous-projet
+add_subdirectory(deps/minifb)
+
+# Exécutable (démo)
+add_executable(demo 
+    src/main.c
+    src/utils/primitives.c
+)
+target_link_libraries(demo minifb)
+```
+
+Générez le build, compilez, vérifiez. 
+
+Si vous lancez la démo en modifiant les points d’arrivée et de départ vous constaterez vite qu’il y a des situations où ça ne marche pas très bien (par . Lesquelles ? Pourquoi ? (que se passe-t-il exactement dans ces cas ?)
+
+#### Tracé de ligne de Bressenham
+
+Pour résoudre ce problème on va utiliser un algorithme enseigné au début de tous les cours de programmation graphique : [**l’algorithme de Bresenham**](https://fr.wikipedia.org/wiki/Algorithme_de_trac%C3%A9_de_segment_de_Bresenham) (développé en 1962 !).  C’est l'algorithme classique pour tracer une ligne entre deux points en n'utilisant que des entiers et en évitant les « trous » dans les lignes tracées quand la pente est trop importante. L'idée est de progresser d'un pixel à la fois dans la direction dominante (celle dont l'écart est le plus grand) et d'accumuler une erreur pour décider quand progresser dans l'autre direction. Lisez bien l’article de Wikipedia et prenez le temps de comprendre  le code et l’algorithme, au besoin  en faisant un dessin (papier/crayon) et en faisant les calculs pour plusieurs situations problématiques.
+
+Modifiez notre implémentation « naïve » du tracé de ligne :
+
+```c
+// primitives.c
+#include "primitives.h"
+#include <stdlib.h>
+
+void dessiner_ligne(uint32_t *buf, int x0, int y0, int x1, int y1, uint32_t c) {
+    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+
+    while (1) {
+        plot(buf, x0, y0, c);
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+}
+```
+
+Il existe d’autres algorithme pour tracer des lignes, notamment [l’algorithme de Xiaolin Wu](https://fr.wikipedia.org/wiki/Algorithme_de_trac%C3%A9_de_segment_de_Xiaolin_Wu) (1991) qui intègre de l’antialiasing pour éviter l’effet crénelé,  vous pouvez chercher à l’implémenter à partir du pseudo-code proposé sur la page Wikipédia (lien précédent).
+
+#### Tracé de cercle
+
+[Bresenham a également proposé un algorithme](https://fr.wikipedia.org/wiki/Algorithme_de_trac%C3%A9_d%27arc_de_cercle_de_Bresenham) (1977) pour tracer des  cercles (le problème est le même que pour le tracé de ligne à partir de l’équation de droite – qui fait intervenir une pente – si on part cette fois de l’équation du cercle). La généralisation de la méthode de Bresenham  s’appelle « l’algorithme du cercle par points médians ».
+
+Voici le code complets pour les primitives que nous avons annoncées, on ne détaille pas l’implémentation :
+
+
+```c
+// primitives.c
+#include "primitives.h"
+#include <stdlib.h>
+
+void dessiner_ligne(uint32_t *buf, int x0, int y0, int x1, int y1, uint32_t c) {
+    int dx = abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    int dy = -abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+
+    while (1) {
+        plot(buf, x0, y0, c);
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+}
+
+void dessiner_rect(uint32_t *buf, int x, int y, int w, int h, uint32_t c) {
+    for (int i = x; i < x + w; i++) {
+        plot(buf, i, y,         c);  // bord haut
+        plot(buf, i, y + h - 1, c);  // bord bas
+    }
+    for (int j = y; j < y + h; j++) {
+        plot(buf, x,         j, c);  // bord gauche
+        plot(buf, x + w - 1, j, c);  // bord droit
+    }
+}
+
+void remplir_rect(uint32_t *buf, int x, int y, int w, int h, uint32_t c) {
+    for (int j = y; j < y + h; j++)
+        for (int i = x; i < x + w; i++)
+            plot(buf, i, j, c);
+}
+
+// Algorithme du point médian pour les cercles
+void dessiner_cercle(uint32_t *buf, int cx, int cy, int r, uint32_t c) {
+    int x = r, y = 0, err = 0;
+    while (x >= y) {
+        plot(buf, cx + x, cy + y, c); plot(buf, cx + y, cy + x, c);
+        plot(buf, cx - y, cy + x, c); plot(buf, cx - x, cy + y, c);
+        plot(buf, cx - x, cy - y, c); plot(buf, cx - y, cy - x, c);
+        plot(buf, cx + y, cy - x, c); plot(buf, cx + x, cy - y, c);
+        y++;
+        err += 1 + 2 * y;
+        if (2 * (err - x) + 1 > 0) { x--; err += 1 - 2 * x; }
+    }
+}
+```
+
+> Pour aller  plus loin,  essayez de comprendre cette implémentation. Vous pouvez aussi essayer d’implémenter le tracé d’ellipses, de polygones quelconques, en prenant en compte la problématique du remplissage ou de la  fermeture (dans le cas des polygones).
+
+### Générer le fond dégradé et assembler l'image
+
+Un dégradé vertical se génère en interpolant linéairement une couleur de haut en bas. Pour chaque ligne `y`, la couleur est un mélange entre la couleur du haut et la couleur du bas, proportionnel à `y / HAUTEUR`. On va créer cet effet directement dans le corps de `main.c` dont voici 
+
+```c
+// main.c - Exemple 1
+#include <MiniFB.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include "utils/primitives.h"
+
+int main(void) {
+    struct mfb_window *win = mfb_open_ex("Exemple 1 - Primitives", LARGEUR, HAUTEUR, 0);
+    if (!win) return 1;
+
+    uint32_t *buffer = malloc(LARGEUR * HAUTEUR * sizeof(uint32_t));
+    mfb_set_target_fps(60);
+
+    while (mfb_wait_sync(win)) {
+        // Dégradé vertical : du bleu nuit en haut au violet sombre en bas
+        for (int y = 0; y < HAUTEUR; y++) {
+            float t = (float)y / HAUTEUR;
+            uint8_t r = (uint8_t)(20  + t * 60);
+            uint8_t g = (uint8_t)(0   + t * 0);
+            uint8_t b = (uint8_t)(80  - t * 30);
+            uint32_t c = MFB_RGB(r, g, b);
+            for (int x = 0; x < LARGEUR; x++)
+                buffer[y * LARGEUR + x] = c;
+        }
+
+        // Primitives par-dessus le fond
+        remplir_rect(buffer,  10, 10, 60, 40, MFB_RGB(200, 50,  50));
+        dessiner_rect(buffer, 10, 10, 60, 40, MFB_RGB(255, 200, 200));
+        dessiner_ligne(buffer, 0, 0, LARGEUR - 1, HAUTEUR - 1, MFB_RGB(255, 255, 0));
+        dessiner_cercle(buffer, LARGEUR / 2, HAUTEUR / 2, 50, MFB_RGB(0, 255, 128));
+
+        mfb_update_state etat = mfb_update_ex(win, buffer, LARGEUR, HAUTEUR);
+        if (etat != MFB_STATE_OK) break;
+    }
+
+    free(buffer);
+    return 0;
+}
+```
+
+> **À explorer** : Modifiez les couleurs du dégradé. Superposez plusieurs cercles concentriques. Dessinez une grille avec des lignes horizontales et verticales espacées régulièrement.
+
+## 4. Exemple 2 : Animation
+
+### Faire bouger des trucs
+
+Animer un objet revient à recalculer sa position à chaque frame en fonction du temps, en faisant en sorte de rafraîchir (mettre à jour) l’image assez rapidement et avec une fréquence suffisamment élever pour maintenir une illusion de continuité : l'animation est une illusion créée par la persistance rétinienne. Dans cette section on  va retrouver des principes auxquels nous nous sommes  souvent confrontés lors de la création de jeux vidéos (rafraîchissement, deltatime, collison…), je ne m’étendrai d onc pas.
+
+À chaque tour de la boucle principale, `minifb` affiche le contenu du buffer puis recommence. Pour créer l'illusion du mouvement, il faut donc que le buffer contienne une image légèrement différente à chaque tour. Au début de chaque frame, on efface intégralement le buffer en mettant tous ses pixels à zéro avec `memset` (c'est l'équivalent de prendre une gomme et d'effacer toute la feuille). On recalcule ensuite la nouvelle position de l'objet et on le redessine à ce nouvelle endroit sur  le buffer. À la frame suivante, on efface à nouveau, on recalcule, on redessine, et ainsi de suite.
+
+- Ne pas effacer le buffer entre les frames et se contenter de déplacer l'objet aura pour résultat que l'objet va laisser une traînée persistante : tous ses pixels précédents restent affichés puisque personne ne les a effacés, ce qui va donner une bouillie de pixels au fur et à mesure où on va dessiner dessus. Le buffer accumulera l'historique de tous les dessins depuis le démarrage.
+- Un autre problème qui va se poser est celui dont vous êtes familier si vous  avez déjà développé des jeux  vidéos le fameux *delta time*. Si on se contente de stocker la position de l'objet en coordonnées de pixels entières (vu qu’on l’affiche sur des coordonnées entières) et de l'incrémenter d'un pixel fixe à chaque frame (par exemple `x += 1`) il va y avoir un petit problème. La vitesse dépendra alors du FPS : sur une machine rapide l'objet ira vite, sur une machine lente il ira lentement. Il convient donc de stocker les coordonnées de nos objets avec des `float` de les incrémenter d’une fraction en fonction du temps écoulé (`x += vitesse * dt`) et d’arrondir quand on veut positionner ces objets avec des coordonnées entières. L’incrémentation sera invisible mais progressera peu à peu en fonction du temps écoulé, ce qui garantit le même comportement visuel quelle que soit la machine (les incréments seront simplement plus grands sur une machine plus lente).
+
+Pour mettre en œuvre cette seconde méthode, on utilisera la variable de temps `t` (en secondes) produite par le timer de `minifb`. Voyons comment on s‘y prend concrètement pour animer une balle (dont on va gérer les collisions sur les bords de la fenêtre).
+
+### Architecture : une structure pour un sprite
+
+Pour une animation un peu complexe, il sera plus simple de créer une structure pour nos sprites. Cela évitera d'avoir des dizaines de variables globales et facilitera les choses si on veut apporter de la complexité (notamment dans le cas d’un jeu vidéo où les sprites possèdent d’autres caractéristiques que  leurs propriétés graphiques : point de  vie, force, protection, etc.), même si ici on ne créera qu’une démo qui ne s’occupe que de l’aspect graphique.
+
+```c
+typedef struct {
+    float x, y;       // position
+    float vx, vy;     // vitesse (pixels par seconde)
+    int   rayon;
+    uint32_t couleur;
+} Balle;
+```
+
+### Balle rebondissante avec le timer
+
+Nous avons vu lors de la présentation de l’API de `minifb` des fonctions qui nous permettaient de mesurer  le temps écoulé. Pour rappel :
+
+```c
+struct mfb_timer *chrono = mfb_timer_create();
+mfb_timer_reset(chrono);
+
+// Dans la boucle :
+double t = mfb_timer_now(chrono);   // secondes depuis le reset
+double dt = mfb_timer_delta(chrono); // secondes depuis le dernier appel à delta
+```
+
+En nous permettant de  calculer le temps écoulé entre chaque rafraîchissement (le *delta time*  `dt` qui s’exprime en seconde), ce timer va nous permettre de calculer un déplacement indépendant du FPS : `position += vitesse * dt`. Ainsi, la balle se déplace à la même vitesse physique que votre machine tourne à 30 ou à 60 FPS.
+
+Exemple concret : 
+
+- je définis une  vitesse de déplacement pour ma balle de 80  pixel par seconde : `vitesse = 80.0f` 
+- avec le timer je mesure que  l’affichage de la frame a duré `dt = 0.016` seconde (soit environ 60 FPS)
+- alors je dois mettre à jour  la `position += 80.0f * 0.016 = 1.28` pixel ce frame-ci. Si la machine est plus lente et que `dt = 0.033` (30 FPS), alors `position += 80.0f * 0.033 = 2.64` pixels.  On  voit bie nque plus la machine est lente,  plus je dois avancer la position d’un nombre supérieur de pixels par frame,  pour qu’au final j’obtienne le même déplacement par seconde. L’animation sera donc plus fluide à 60FPS qu‘à 30FPS.
+
+Le code (qui prend en charge les collisions, pas de difficultés ici) :
+
+```c
+// main.c - Exemple 2
+#include <MiniFB.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include "utils/primitives.h"
+
+typedef struct { float x, y, vx, vy; int r; uint32_t c; } Balle;
+
+int main(void) {
+    struct mfb_window *win = mfb_open_ex("Exemple 2 - Animation", LARGEUR, HAUTEUR, 0);
+    if (!win) return 1;
+
+    uint32_t *buffer = malloc(LARGEUR * HAUTEUR * sizeof(uint32_t));
+    struct mfb_timer *chrono = mfb_timer_create();
+    mfb_set_target_fps(60);
+
+    // Initialisation de la balle
+    Balle b = { LARGEUR / 2.0f, HAUTEUR / 2.0f, 80.0f, 55.0f, 15, MFB_RGB(255, 100, 50) };
+
+    while (mfb_wait_sync(win)) {
+        double dt = mfb_timer_delta(chrono);  // temps depuis la dernière frame
+
+        // Mise à jour de la physique
+        b.x += b.vx * (float)dt;
+        b.y += b.vy * (float)dt;
+
+        // Rebond sur les bords
+        if (b.x - b.r < 0)          { b.x = b.r;            b.vx = -b.vx; }
+        if (b.x + b.r >= LARGEUR)   { b.x = LARGEUR - b.r;  b.vx = -b.vx; }
+        if (b.y - b.r < 0)          { b.y = b.r;            b.vy = -b.vy; }
+        if (b.y + b.r >= HAUTEUR)   { b.y = HAUTEUR - b.r;  b.vy = -b.vy; }
+
+        // Rendu
+        memset(buffer, 0, LARGEUR * HAUTEUR * sizeof(uint32_t));
+        dessiner_cercle(buffer, (int)b.x, (int)b.y, b.r, b.c);
+
+        mfb_update_state etat = mfb_update_ex(win, buffer, LARGEUR, HAUTEUR);
+        if (etat != MFB_STATE_OK) break;
+    }
+
+    mfb_timer_destroy(chrono);
+    free(buffer);
+    return 0;
+}
+```
+
+> Vous remarquerez qu’ici on appelle à la fin du code des fonctions que nous n’avons pas évoquées plus tôt. Elle servent (comme souvent) à quitter proprement en nettoyant explicitement les ressources allouées :
+>
+> - `mfb_timer_destroy(chrono);`  libère la structure `timer` allouée par `mfb_timer_create()` (normalement toute fonction d’allocation à sa désallocation symétrique)
+> - `free(buffer);` libère le buffer de pixel alloué par `malloc()`. C’est mal de l’avoir négligé auparavent, mais en C tout `malloc()` doit avoir son `free()` qui suit.
+> - `mfb_close(win);` que l’on n’appelle pas dans notre code sert à fermer la fenêtre explicitement.  `minifb` ferme automatiquement la fenêtre dès que `mfb_update_ex` ou `mfb_wait_sync` détectent que l'utilisateur a demandé la fermeture. Mais on peut vouloir la fermer depuis le programme si certaines événements se produisent (ou ne se produisent pas) : appui sur une touche particulière, après un certain temps…
+>
+> **À explorer** : Ajoutez une deuxième balle avec une couleur différente. Faites varier le rayon de la balle en fonction du temps avec `sin`. Laissez une traîne (ne pas effacer complètement le buffer, mais assombrir légèrement à chaque frame).
+
+## Annexes
+
+### Récapitulatif des fonctions minifb utilisées
+
+| Fonction                        | Rôle                                              |
+|---------------------------------|---------------------------------------------------|
+| `mfb_open_ex(titre, w, h, flags)` | Crée une fenêtre                                |
+| `mfb_close(win)`                | Ferme la fenêtre                                  |
+| `mfb_update_ex(win, buf, w, h)` | Affiche le buffer et traite les événements        |
+| `mfb_wait_sync(win)`            | Attend le prochain intervalle de frame            |
+| `mfb_set_target_fps(fps)`       | Définit le FPS cible (par défaut 60)              |
+| `mfb_timer_create()`            | Crée un timer haute résolution                    |
+| `mfb_timer_destroy(t)`          | Libère un timer                                   |
+| `mfb_timer_now(t)`              | Temps en secondes depuis la création              |
+| `mfb_timer_delta(t)`            | Temps en secondes depuis le dernier appel         |
+| `mfb_set_keyboard_callback(win, fn)` | Enregistre un callback clavier              |
+| `mfb_get_key_buffer(win)`       | Buffer d'état des touches (tableau d'octets)      |
+| `MFB_RGB(r, g, b)`              | Construit une couleur 32 bits                     |
+
+### Pistes de lecture pour aller plus loin
+
+- [lodev.org/cgtutor](https://lodev.org/cgtutor) : Tutoriels C/C++ (SDL) sur le fire effect, le raycasting, le plasma et autres fondamentaux de la programmation graphique. Code plus ou moins directement transposable dans minifb.
+- [sizecoding.org](http://www.sizecoding.org/wiki/Main_Page) : Un wiki pour apprendre à créer des effets démos. Pseudocode, théorie et machines/cpu d’époque (ou modernes, y compris les fantasy consoles).
+- [seancode.com/demofx](https://seancode.com/demofx) : Explication intuitive du rotozoom, fire, tunnel et plasma avec code source (Typescript).
+- [github.com/flightcrank/demo-effects](https://github.com/flightcrank/demo-effects) : Collection d'effets demoscene en C, chacun dans un fichier autonome.
+- [github.com/ponceto/dosfx](https://github.com/ponceto/dosfx) : Effets Turbo-C pour DOS, code minimal et historique
+- Chaînes Youtube :
+- Canaux Reddit :
