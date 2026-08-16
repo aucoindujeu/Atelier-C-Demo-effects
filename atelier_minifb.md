@@ -81,6 +81,8 @@ atelier_demo/
 │   └── minifb/          ← dépôt minifb (submodule) cf. ci-dessous
 └── src/
     ├── main.c
+    ├── fonts/
+    │   └── font8x8_basic.h
     ├── effets/
     │   ├── starfield.c
     │   ├── plasma.c
@@ -109,6 +111,9 @@ set(CMAKE_C_STANDARD 11)
 
 # Inclusion de minifb comme sous-projet
 add_subdirectory(deps/minifb)
+
+# Indiquer où trouver les headers
+target_include_directories(demo PRIVATE src)
 
 # Exécutable (démo)
 add_executable(demo src/main.c)
@@ -518,7 +523,7 @@ Maintenant que vous êtes familiarisé avec l’API de `minifb` (vous trouverez 
 
 Avant d'animer quoi que ce soit, il faut maîtriser l'écriture dans le buffer. On vous propose dans ce premier exemple de l’atelier d’implémenter la génération d’une image fixe : un fond dégradé et quelques primitives géométriques dessinées par-dessus.
 
-### Penser en primitives logiques
+### Créer ses primitives géométriques
 
 Le but du jeu de cet  atelier (et ce qui se faisait dans la demoscene), c’est de  tout faire from scratch.  On n'utilisera donc pas de bibliothèque graphique qui dessine des lignes ou autre primitive géométrique. Tout notre travailva consister à écrire des valeurs dans `buffer[y * LARGEUR + x]` pour dessiner ce qu’on a envie de dessiner ou rendre des effets graphiques.
 
@@ -884,6 +889,447 @@ int main(void) {
 > - `mfb_close(win);` que l’on n’appelle pas dans notre code sert à fermer la fenêtre explicitement.  `minifb` ferme automatiquement la fenêtre dès que `mfb_update_ex` ou `mfb_wait_sync` détectent que l'utilisateur a demandé la fermeture. Mais on peut vouloir la fermer depuis le programme si certaines événements se produisent (ou ne se produisent pas) : appui sur une touche particulière, après un certain temps…
 >
 > **À explorer** : Ajoutez une deuxième balle avec une couleur différente. Faites varier le rayon de la balle en fonction du temps avec `sin`. Laissez une traîne (ne pas effacer complètement le buffer, mais assombrir légèrement à chaque frame).
+
+## Effet 1 : scroller et sinscroll
+
+Un grand classique des intros et démo des années 80/90 était de faire défiler un texte coloré de la manière la plus originale possible (où la trajectoire des lettres n’était pas simplement linéaire). On va donc voir dans cette section :
+
+- comment afficher des polices de caractères (bitmap)
+- comment les faire défiler simplement (déplacement linéaire)
+- comment leur donner une trajectoire plus démo (oscillations de haut en bas, etc.)
+
+### Afficher des polices de caractères
+
+On va afficher des polices comme des images (bitmap, constituées de pixels) et non des polices vectorisées. On trouve de telles polices sur github ([par exemple la collection compilée par Ian Hanschen](https://github.com/ianhan/BitmapFonts) – qui admet ne pas disposer des licences). Il s’agit d’une collection de fichier `.png`, donc pour les utiliser il nous faudrait donc voir comment charger un fichier image bitmap dans `minifb` (c’est assez facile). Dans notre atelier on va plutôt utiliser la police `font8x8` [disponible sur le dépôt de Daniel Hepper](https://github.com/dhepper/font8x8) et qui a été versée par son créateur Marcel Sondaar dans le domaine public, et qui se présente sous la forme de headers C (et un fichier `render.c` pour les visualiser dans le terminal).
+
+#### Encoder les caractères
+
+L’encodage utiilisé est très simple :  chaque caractère est une petite grille de pixels codée en binaire. Une police 8×8 très simple peut être représentée comme un tableau de 8 × 8 pixel, où chaque ligne est encodée par un octet qui représentent 8 pixels (bit à 1 = pixel allumé). Cela est expliqué dans le readme :
+
+```
+Encoding
+========
+Every character in the font is encoded row-wise in 8 bytes.
+
+The least significant bit of each byte corresponds to the first pixel in a
+ row. 
+
+The character 'A' (0x41 / 65) is encoded as 
+{ 0x0C, 0x1E, 0x33, 0x33, 0x3F, 0x33, 0x33, 0x00}
+
+
+    0x0C => 0000 1100 => ..XX....
+    0X1E => 0001 1110 => .XXXX...
+    0x33 => 0011 0011 => XX..XX..
+    0x33 => 0011 0011 => XX..XX..
+    0x3F => 0011 1111 => xxxxxx..
+    0x33 => 0011 0011 => XX..XX..
+    0x33 => 0011 0011 => XX..XX..
+    0x00 => 0000 0000 => ........
+```
+
+La police complète regroupe les 128 caractères ASCII dans un tableau `char font8x8_basic[128][8]`.
+
+#### Moteur de rendu de la police
+
+On a un tableau qui encode les caratères en pixels. Si on veut afficher un caratère il faut :
+
+1. à partir du caractère voulu, retrouver son index dans le tableau
+2. se positionner à l’endroit voulu dans le buffer (à quelle position on veut afficher le caractère)
+3. à partir de l’encodage déterminer quels pixels à modifier dans le buffer 
+
+Pour l’étape 1 l’utilisation de caratère ASCII  va grandement nous simplifier la vie : le lien entre un caractère et son indice dans le tableau repose sur l'encodage ASCII . En C, un `char` est en réalité un entier dont la valeur est associée à un caractère selon la table ASCII. Ainsi `'A'` vaut `65`, `'B'` vaut `66`, `' '` (espace) vaut `32`, etc. Il n’y a donc aucune conversion explicite à faire : c'est la même valeur, simplement interprétée comme un caractère ou comme un entier selon le contexte.
+
+Donc quand on écrit :
+
+```c
+font8x8_basic[(int)c][ligne]
+```
+
+Si `c` contient le caractère `'A'`, le cast `(int)c` donne `65`, et on accède à la 65ème entrée du tableau qui correspond à l’encodage bitmap du `'A'`. C'est pour cela que la police doit avoir exactement 128 entrées et être organisée dans l'ordre ASCII : l'indice du tableau **est** le code ASCII du caractère.
+
+Le cast `(int)c` est là par précaution : sur certaines plateformes `char` est signé par défaut, ce qui pourrait donner des indices négatifs pour des caractères au-delà de 127. Le cast force une interprétation non ambiguë.
+
+Pour le dessin du caractère dans le buffer, la suite est assez triviale : on se positionne à la cellule  (x, y) du buffer où on veut tracer la lettre, et on parcourt les 8 lignes de la girlle qui encode le caractère en bitmap pour modifier les pixels correspondants du buffer avec `plot()` :
+
+```c
+#include "font8x8_basic.h"  // définition bitmap des caratères dans le tableau extern char font8x8_basic[128][8]
+
+void dessiner_caractere(uint32_t *buf, int x, int y, char c, uint32_t couleur) {
+    if (c < 0 || c >= 128) return; // index = code ASCII du caratère
+    // on parcorus la grille
+    for (int ligne = 0; ligne < 8; ligne++) {
+        uint8_t bits = font8x8_basic[(int)c][ligne];
+        for (int col = 0; col < 8; col++) {
+            // voir la note ci-dessous pour une explication détailler du test de la condition suivante
+            if (bits & (1 << col)) {
+                plot(buf, x + col, y + ligne, couleur); // on écrit les pixels dans le buffer à la position (x,y) en se décalant du nombre de pixel correspondant au parcorus de la grille/définition
+            }
+        }
+    }
+}
+```
+
+> Pour savoir si un pixel doit être allumé ou non, on teste la condition suivante :
+>
+> ```c
+> if (bits & (1 << col)) // vrai si le bit à la position col n’est pas à zéro
+> ```
+>
+> Cela mérite quelques explication car comme l’indique l’opérateur `<<` on réalise des opérations au niveau des bits ce dont on n’est plus très familier aujourd’hui avec les langages de haut niveau.
+>
+> Rappelons que chaque ligne d'un caractère est encodée dans un octet, soit 8 bits : un par pixel. Par exemple la première ligne du `'A'` vaut `0b00011000`. Pour savoir si le pixel à la colonne `col` est allumé ou éteint, il faut tester si le bit numéro `col` de cet octet est à 1 ou à 0.
+>
+> `1 << col` construit un **masque** : on part de la valeur `1` (soit `0b00000001`) et on la décale de `col` positions vers la gauche. Pour `col = 3` on obtient `0b00001000`, pour `col = 4` on obtient `0b00010000`, etc. Le résultat est un octet avec un seul bit à 1, exactement à la position qu'on veut tester.
+>
+> L'opérateur `&` (ET binaire) applique ce masque sur `bits` : il ne conserve que le bit à la position `col`, tous les autres passent à 0. Le résultat est soit `0` (le bit était à 0, pixel éteint) soit une valeur non nulle (le bit était à 1, pixel allumé).
+>
+> ```
+> bits     = 0b00011000   (ligne du 'A')
+> 1 << 3   = 0b00001000   (masque pour col=3)
+> résultat = 0b00001000   → non nul → pixel allumé
+> 
+> bits     = 0b00011000
+> 1 << 5   = 0b00100000   (masque pour col=5)
+> résultat = 0b00000000   → zéro → pixel éteint
+> ```
+>
+
+### Scrolling
+
+Maintenant qu’on sait décoder et afficher nos caractères, ça va ici être nettement plus simple.
+
+Réaliser un scrolling, c’est juste décaler ce qui est affiché dans le buffer dans une direction : c’est donc simplement rajouter un décalage, ou *offset*. On va donc rajouter un offset (le même, pour une vitesse constante) à chaque frame à la position de nos pixels du buffer. 
+
+Le problème que ça pose set que si on ne cesse de décaler ce qu’on affiche, notre buffer va se vider (les pixels affichés sortent de l’écran les uns a près les autres dans la direction opposée au scrolling). Pour afficher notre texte en continu (scrolling infini, qui boucle), on va appliquer un modulo à la position de chaque caractère pour faire une boucle (quand il sort, il réapparait à la position 0). Par construction de notre fonction `plot()`  tout pixel positionné en dehors du buffer ne sera simplement pas affiché (ce qui n’interdit pas de faire des calculs pour modifier cette position « impossible » jusqu’à ce qu’elle devienne affichable à un moment).
+
+On va donc utiliser une variable `scroll_offset` de type float qu’on va incrémenter en fonction du temps (à la vitesse de défilement que l’on souhaite), on va la convertir (arrondir) en `int` quand on doit calculer la position d’un pixel donné :
+
+```c 
+// Calcul de la position d'un caractère i en mode scroll :
+int pixel_x = i * 8 - (int)scroll_offset;
+// Si pixel_x < LARGEUR et pixel_x + 8 > 0 : le caractère est (partiellement) visible
+```
+
+### Sinscroll
+
+Lorsque l’on veut une modification cyclique (une oscillation), qu’il s’agisse d’une variation de couleur, ou de position, etc., l’utilisation d’une fonction trigonométrique peut-être assez pratique, car non seulement elle sont cycliques, mais aussi non linéaires (la variation ralentie quand on approche le plus haut ou le plus bas de « l’onde de transormation » et s’accélère pendant la transition), ce qui donne au mouvement un aspect plus naturel et moins mécanique qu’une variation linéaire (une simple somme comme l’ajout d’un offset constant qui va juste changer de signer pour aller dans un sens puis dans l’autre).
+
+Mais à quoi va-t-on appliquer notre fonction sinus ? 
+
+Si on  veut faire osciller de haut en bas no caractères de manière cohérente (qui se suit), notre fonction sinus va recevoir deux paramètres : **la position horizontale du caractère** et **le temps**. C’est la combinaison des deux qui crée l'effet d'onde qui se propage.
+
+```
+y_offset(i, t) = amplitude × sin(frequence × i + vitesse_onde × t)
+```
+
+- `amplitude` : hauteur maximale de l'ondulation, en pixels (typiquement 20–40 px pour un écran 320×200)
+- `frequence` : nombre de cycles de l'onde sur la longueur de l'écran (typiquement 0.3–1.0 rad/px)
+- `vitesse_onde` : vitesse de propagation de l'onde (typiquement 2–5 rad/s)
+
+Pour le moment ça reste très abstrait. Voyons donc comment ça s’implémente, et jouez avec les paramètres pour bien comprendre comment ils affectent l’effet.
+
+#### Implémentation complète
+
+##### Architecture du projet
+
+Comme on commence à créer des effets spécifiques, il est bon de revenir un peu sur l’architecture de notre projet, notamment si on veut à terme écrire une démo qui va faire intervenir différents effets, donc autant penser à quelque chose d’évolutif et d’assez modulaire.
+
+L’idée est la suivante : `main.c` sera notre programme principal. Il initialisera minifb, créera le buffer, et appellera successivement les fonctions qui implémentent  les effets. On a dû déclaré des constantes pour configurer les éléments graphiques (LARGEUR, HAUTEUR, FPS…), plutôt que les éparpiller entre différents fichier, mieux vaut tout centraliser dans un fichier `config.h`. Pensez bien à modifier les inclusions dans les différents fichiers. Ensuite, chaque implémentation d’effet prendra place dans son propre fichier stocké dans le sous-répertoire `effets/` et exposera une fonction `run_<effet>(...)` que `main.c` appellera lorsqu’il doit être lancé. Les fonctions utilitaires (primitives graphiques, rendu de texte) sont dans `utils/` et partagées par tous les effets. On obtiendrait donc l’architecture suivante :
+
+```
+mon_atelier/
+├── CMakeLists.txt
+├── deps/
+│   └── minifb/
+└── src/
+    ├── main.c                  ← chef d'orchestre, initialisation, boucle principale
+    ├── config.h				← pour les constantes types LARGEUR, HAUTEUR, FPS…
+    ├── effets/
+    │   ├── scroller.h          ← déclaration de run_scroller()
+    │   ├── scroller.c          ← implémentation de l'effet
+    │   ├── starfield.h
+    │   ├── starfield.c
+    │   └── ...
+    └── utils/
+        ├── primitives.h        ← plot(), dessiner_ligne(), dessiner_cercle()...
+        ├── primitives.c
+        ├── text.h              ← dessiner_caractere()
+        └── text.c
+```
+
+`text.c` est séparé de `primitives.c` car le rendu de texte dépend de la police bitmap (`font8x8_basic.h`), qui est une dépendance que les autres primitives n'ont pas. Cette séparation permet d'inclure `text.h` uniquement dans les effets qui en ont besoin.
+
+Enfin n’oublions pas de télécharger [font8x8](https://github.com/dhepper/font8x8) et de le décompresser dans un répertoire `src/font8x8` :
+
+```cmon_atelier/
+└── src/
+    ├── fonts/
+    │   └── font8x8_basic.h
+    ├── utils/
+    └── main.c
+```
+
+Et vérifiez bien que vous avez bien, dans `CMakeLists.txt` cette ligne qui indique où trouver les headers :
+
+```cmake
+target_include_directories(demo PRIVATE src)
+```
+
+- `demo` : désigne la cible (on va créer un exécutable nommé `demo`)
+- `PRIVATE` : le chemin indiqué ne sera visible que pour compiler la cible spécifiée (en fait on peut utiliser CMAKE pour des gros projets où on peut générer plusieurs exécutables/cibles, avec chacun ses headers, etc., on peut donc avoir besoin de bien compartimenter les fichiers nécessaires pour chaque cible)
+- `src` : le dossier où on déclare se trouver les headers. Pour inclure  `font8x8_basic.h` on écrira donc `#include "fonts/font8x8_basic.h"` car  `fonts` est un sous-répertoire de `src`.
+
+#####  Mise à jour de CMakeLists.txt
+
+Face à l’évolution de cette architecture, il faudra à chaque fois mettre à jour `CMakeLists.txt`. 
+
+Tous les fichiers `.c` du projet sont listés une seule fois dans `add_executable`. Quand vous ajouterez un nouvel effet, vous ajouterez simplement son `.c` à cette liste.
+
+```cmake
+cmake_minimum_required(VERSION 3.15)
+project(atelier_minifb C CXX)
+
+set(CMAKE_C_STANDARD 11)
+
+add_subdirectory(deps/minifb)
+
+add_executable(demo
+    src/main.c
+    src/utils/primitives.c
+    src/utils/text.c
+    src/effets/scroller.c
+    # src/effets/starfield.c    ← décommentez au fur et à mesure
+    # src/effets/plasma.c
+)
+
+target_include_directories(demo PRIVATE src)
+target_link_libraries(demo minifb m)  # m = bibliothèque mathématique (sinf, etc.)
+```
+> Noter l'ajout de m dans target_link_libraries : sinf, cosf et sqrtf sont dans la bibliothèque mathématique standard (libm), qui doit être liée explicitement sous Linux.
+
+Maintenant qu’on a les idées claires sur l’organisation de notre code, on peut l’écrire.
+
+##### Code complet
+
+Commençons par le fichier de config :
+
+**`config.h`**
+
+```c
+// src/config.h
+#ifndef CONFIG_H
+#define CONFIG_H
+
+#define LARGEUR  320
+#define HAUTEUR  200
+#define FPS       60
+
+#endif
+```
+
+Ensuite la gestion et le dessin des caractères :
+
+**`src/utils/text.h`**
+
+```c
+#ifndef TEXT_H
+#define TEXT_H
+
+#include <stdint.h>
+
+void dessiner_caractere(uint32_t *buf, int x, int y, char c, uint32_t couleur);
+
+#endif
+```
+
+**`src/utils/text.c`**
+
+```c
+#include "text.h"
+#include "primitives.h"
+#include "fonts/font8x8_basic.h"
+
+// Chaque caractère est défini par 8 octets dans le tableau font8x8_basic.
+// L'indice est le code ASCII du caractère : 'A' = 65, donc on trouve 
+// la définition de 'A' à font8x8_basic[65].
+// Pour chaque ligne (octet), on teste chacun des 8 bits avec un masque.
+void dessiner_caractere(uint32_t *buf, int x, int y, char c, uint32_t couleur) {
+    if (c < 0 || c >= 128) return;
+    for (int ligne = 0; ligne < 8; ligne++) {
+        uint8_t bits = font8x8_basic[(int)c][ligne];
+        for (int col = 0; col < 8; col++) {
+            if (bits & (1 << col))
+                plot(buf, x + col, y + ligne, couleur);
+        }
+    }
+}
+```
+
+Passons ensuite à notre effet sinus scroller. À noter que dans  le cadre de l’atelier on a « hard-codé » certaines choses (comme le texte, les paramètres…), mais vous pouvez réécrire  ce code pour le rendr plus paramétrable.
+
+**`src/effets/scroller.h`**
+
+```c
+#ifndef SCROLLER_H
+#define SCROLLER_H
+
+#include <stdint.h>
+#include <MiniFB.h>
+
+// Lance l'effet scroller. Retourne quand l'utilisateur ferme la fenêtre
+// ou appuie sur une touche de fin d'effet.
+void run_scroller(struct mfb_window *win, uint32_t *buffer);
+
+#endif
+```
+
+**`src/effets/scroller.c`**
+
+J’ai abondamment commenté ce fichier pour expliquer chaque étape, mais ce n’est pas toujours très facile d’être clair par écrit. N’hésitez pas à faire des dessins (écran + ce que j’appelle le scrolling « déroulé ») et à tracer les fonctions mathématiques impliquées pour comprendre ce qu’il se passe. Le fait de faire boucler le texte apporte beaucoup plus de complexité que ce que j’imaginais quand j’ai commencé à écrire cet effet.
+
+```c
+#include "scroller.h"
+#include <MiniFB.h>
+#include <string.h> // pour manipuler les chaînes de caractères
+#include <math.h> // pour disposer des fonction trigo et modulo
+#include "config.h" // pourdisposer de LARGEUR et HAUTEUR
+#include "utils/text.h" //  notre moteur d’affichage de texte (caractères)
+
+// notre fonction qui implémente le sinus scroleller
+void run_scroller(struct mfb_window *win, uint32_t *buffer) {
+    
+    // le texte à faire défiler. Quand on accole deux chaînes, le compilateur les concatène automatiquement (plus lisible)
+    const char *texte = "  ATELIER DEMO DU CODE CLUB   "
+                        "  SCROLL INFINI AVEC MINIFB   ";
+    
+    // on aura besoin de connaître a longueur du texte (=nbr caractères)
+    int longueur = strlen(texte);
+    // on convertit la longueur de la chaîne en pixels (1 carac = 8 pixels)
+    float longueur_pixels = longueur * 8.0f;
+
+    // on définit les paramètres du scrolling
+    
+    float scroll = 0.0f; // nombre total de pixels parcourus depuis le début du scroll (en comptant les boucles = ne revien pas à zéro).  
+    float vitesse_scroll = 50.0f;   // vitesse du scroll en pixels/seconde
+
+    float amplitude    = 30.0f;     // hauteur de l'ondulation en pixels
+    float frequence    = 0.5f;      // « ressérement de l’onde », + fréq. augmente, + haut. carac. espacée (rad/caractère)
+    float vitesse_onde = 3.0f;      // vitesse à laquelle l’onde « avance » (rad/seconde)
+
+    // on lance le timer
+    struct mfb_timer *chrono = mfb_timer_create();
+
+    while (mfb_wait_sync(win)) {
+
+        // récupération du delta time
+        double dt = mfb_timer_delta(chrono);
+        // on va utiliser le temps total écoulé pour notre effet (composante liée à l’avancée de l’onde)
+        double t  = mfb_timer_now(chrono);
+
+        // on ajoute le nombre de pixel dont on avance pendant le frame courant
+        scroll += vitesse_scroll * (float)dt;
+
+        // Comme notre scrolling boucle, il faut calculer la part de la longueur du texte dans le déplacement total réalisé
+        // (faire un dessin, dur d’expliquer rapidement par écrit)
+        // on calcule donc le reste de la division entière entre scroll et longueur_pixels
+        // comme ce sont des float, on utilise le modulo pour float : fmodf()
+        float scroll_offset = fmodf(scroll, longueur_pixels);
+
+        // on commence le rafraîchissement en effaçant tout les pixels du buffer
+        memset(buffer, 0, LARGEUR * HAUTEUR * sizeof(uint32_t));
+
+        // la boucle pour calculer la position px (horizontale) et py (hauteur) de chaque caractère
+        // on boucle de 0 (position du 1er caractère) au la position du dernier caractère à laquelle on ajoute
+        // la largeur de l’écran exprimée en caractère
+        // en effet comme notre texte boucle, si tout notre texte a défilé (dernier caractère à gauche de l’écran)
+        // il faut rajouter au maximum le bouclage sur le début du texte de la largeur d’un écran
+        // attention i n’est pas directeemnt le ième caractère du texte, mais le ième caractère qu’on affiche
+        // on retrouvera ensuite à quel caractère du texte cela correspond dans un second temps
+        // il faut distinguer :
+        // - la position d’un caractère dans le texte
+        // - la postition d’un caractère dans le défilement (scrolling total)
+        // - la position d’un caractère sur l’écran (en appliquant modulo scorlling total = scrolling_offset)
+        for (int i = 0; i < longueur + LARGEUR / 8 + 1; i++) {
+            
+            // on calcule la position précise en pixel du caractère (en float donc) en applicant le décalage dû au scrolling sur l’écran
+            float px_f = i * 8 - scroll_offset;
+            // on caste en entiers car la position d’un pixel dans le buffer est entière
+            int px = (int)px_f;
+            // si le caractère tombe en dehors de l’écran, on abandonne et passe direct au caractère suivant
+            if (px > LARGEUR || px < -8) continue;
+
+            // si le pixel tombe bien sur l’écran
+            // on cherche à quel caractère du texte ça correspond avec le modulo entier
+            int idx  = i % longueur;
+            char c   = texte[idx];
+
+            // on a besoin de savoir à quelle position (en pixel) dans le scrolling « déroulé » le caractère se trouve 
+            // pour calculer sa hauteur (on va appeler cette position « absolue » dans le scrolling)
+            float position_absolue = (scroll + px_f) / 8.0f;
+
+            // on calcul la hauteur à partir de t et de cette position absolue
+            int py = HAUTEUR / 2 - 4 // milieu de la hauteur d’écran (prenant en compte un carac de 8px de haut)
+                + (int)(amplitude * sinf(frequence * position_absolue + vitesse_onde * (float)t)); // on veut une position entière
+
+            // Couleur arc-en-ciel : trois sinus déphasés de 2π/3 (=2.09rad) sur les trois canaux
+            // un cycle de couleurs complet prend 2π/O.2=31 caratère (position)
+            uint8_t r = (uint8_t)(128 + 127 * sinf(position_absolue * 0.2f));
+            uint8_t g = (uint8_t)(128 + 127 * sinf(position_absolue * 0.2f + 2.09f));
+            uint8_t b = (uint8_t)(128 + 127 * sinf(position_absolue * 0.2f + 4.19f));
+
+            // maintenant qu’on a tout on peut déssiner le caractère à la bonne position avec la couleur qui va bien
+            dessiner_caractere(buffer, px, py, c, MFB_RGB(r, g, b));
+        }
+
+        // on update l’état de la fenêtre et si tout est ok on boucle
+        mfb_update_state etat = mfb_update_ex(win, buffer, LARGEUR, HAUTEUR);
+        if (etat != MFB_STATE_OK) break;
+    }
+
+    // quand on sort de la boucle / fonction, on détruit proprement le timer
+    mfb_timer_destroy(chrono);
+}
+```
+
+
+> **Pour aller plus loin** : Jouez sur `amplitude`, `frequence` et `vitesse_onde` pour observer leur effet. Essayez d'ajouter une deuxième onde à une fréquence différente (sommer deux `sinf`). Ajoutez du contrôle en faisannt varier la vitesse du scroll ou le déphasage des couleurs avec les touches flèche gauche/droite.
+
+Enfin voilà le `main.c` révisé pour s’adapter à cette nouvelle architecture :
+
+**`main.c`**
+
+```c
+#include <MiniFB.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include "config.h"
+#include "utils/primitives.h"
+#include "effects/scroller.h"
+// #include "effects/starfield.h"   ← décommentez au fur et à mesure qu’on rajoutera les effets
+// #include "effects/plasma.h"
+
+int main(void) {
+    struct mfb_window *win = mfb_open_ex("Atelier Demo", LARGEUR, HAUTEUR, MFB_WF_RESIZABLE);
+    if (!win) return 1;
+
+    uint32_t *buffer = malloc(LARGEUR * HAUTEUR * sizeof(uint32_t));
+    if (!buffer) { mfb_close(win); return 1; }
+
+    mfb_set_target_fps(FPS);
+
+    // Lancement des effets dans l'ordre, à compléter au fil de l'atelier
+    run_scroller(win, buffer);
+    // run_starfield(win, buffer);
+    // run_plasma(win, buffer);
+
+    // on quitte proprement
+    free(buffer);
+    return 0;
+}
+```
+
+
 
 ## Annexes
 
