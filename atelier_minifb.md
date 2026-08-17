@@ -1329,6 +1329,10 @@ int main(void) {
 }
 ```
 
+Et voilà le travail :
+
+![Capture démo sinscroller](./images/Demo_sinscroller.png)
+
 ## 6. Champ d’étoiles (starfield)
 
 Il s’agit d’un effet typique très populaire dans les années 80s/début 90 car il permet très simplement avec un minimum de calculs d’obtenir un effet assez impressionnant (effet 3D) qui simule le voyage à travers l'espace. Des points lumineux partent du centre de l'écran et se déplacent vers les bords, s'accélérant à mesure qu'ils "s'approchent" de l'observateur. La beauté de cet effet est qu'il repose sur une seule idée : **la perspective**. Plus une étoile est "loin" (profondeur élevée), plus elle est proche du centre et se déplace lentement. Plus elle est "proche" (profondeur faible), plus elle est éloignée du centre et se déplace vite.
@@ -1513,7 +1517,9 @@ void run_starfield(struct mfb_window *win, uint32_t *buffer) {
 
 > Ne pas oublier d’inclure le header et de d’appeler `run_starfield()` dans `main.c` et de mettre à jour `CMakeLists.txt`!
 
+Vous devriez obtenir cela :
 
+![Capture démo starfield](./images/Demo_starfield.png)
 
 ## 7. Effet 3 : champ d’étoile avancé
 
@@ -1582,7 +1588,7 @@ dessiner_ligne(buffer, px_prev, py_prev, px, py, MFB_RGB(lum/2, lum/2, lum));
 >
 > Avec les paramètres choisis (notamment le `8.0f` ), l’effet est grossier (gros carrés pour les étoiles), mais c’est pour mieux faire comprendre comment il fonctionne, à vous de trouver la valeur de paramètre qui mette suffisamment en valeur l’effet tout en ne donnant pas l’impression d’une résolution dégueulasse.
 >
-> Par ailleurs vous voyez qu’on dessine la traînée avec `dessiner_ligne()` il faut donc bien penser à inclure `primitives.h` pour accéder à cette fonction. Vous comprenez aussi pourquoi on a commencé à créer cette boîte à outil « primitives ». Par ailleurs la variation de profondeur  `z` d’une frame à l’autre est très faibles à petite vitesse, donc cet effet traîné n’apparaît qu’aux hautes vitesse où l’écart de profondeur devient plus important. Pour avoir des traînées plus longues, il faut soit mémoriser la position plusieurs frames à l’avance (ce qui peut être compliqué), soit tricher un peu sur le plan physique en simulant un `z_prev` beaucoup plus grand pour provoquer un écart plus important. On ne fait pas une simulation astrophysique réaliste mais une démo où c’est l’effet qui compte : on peut tricher si c’est pour la cause !
+> Par ailleurs vous voyez qu’on dessine la traînée avec `dessiner_ligne()` il faut donc bien penser à inclure `primitives.h` pour accéder à cette fonction. Vous comprenez aussi pourquoi on a commencé à créer cette boîte à outil « primitives » : afin de disposer des outils plus tards. Par ailleurs la variation de profondeur `z` d’une frame à l’autre est très faibles à petite vitesse, donc cet effet traîné n’apparaît qu’aux hautes vitesse où l’écart de profondeur devient plus important. Pour avoir des traînées plus longues, il faut soit mémoriser la position plusieurs frames à l’avance (ce qui peut être compliqué), soit tricher un peu sur le plan physique en simulant un `z_prev` beaucoup plus grand pour provoquer un écart plus important. On ne fait pas une simulation astrophysique réaliste mais une démo où c’est l’effet qui compte : on peut tricher si c’est pour la cause ! Enfin combiner effet de traînée et taille n’est pas une bonne idée si on trace la traînée avec une ligne d’un pixel de large alors que l’étoile est plus grosse (adaptez le code dans ce cas !)
 >
 > Enfin cumuler les deux effets peut leur nuire, vous pouvez très bien programmer le passage d’un effet à l’autre par l’appuie sur une touche (`t` pour traînées/taille par exemple).
 
@@ -1601,6 +1607,22 @@ else                  couleur = MFB_RGB((uint8_t)(lum*0.8f), (uint8_t)(lum*0.4f)
 > Là aussi l’effet est grossier pour le rendre visible et l’expliquer, vous pouvez très bien l’affiner en choisissant une progression de couleur plus progressive, en ajoutant des catégories de profondeur, etc.
 
 Il ne s’agit que de quelques suggesgtions, vous pouvez en chercher d’autres ou améliorer encore plus ces effets. N’oubliez pas qu’en la matière, plus on en fait, mieux c’est. L’effet doit rester lisible mais on n’est pas non plus dans l’économie, on doit en mettre plein la vue : pimp your demo !
+
+Un exemple de ce que vous pouvez obtenir :
+
+Avec un effet de trainées et un étagement des couleurs :
+
+![Capture démo starfield avec traînées](./images/Demo_starfield_advanced_trainée.png)
+
+Et si on joue sur la taille des étoiles :
+
+![Capture démo starfield avec effet taillle](./images/Demo_starfield_advanced_taille.png)
+
+
+
+On voit que si on combine effets taille et traînées en même temps ça ne marche pas bien (les traînées restent de petites lignes fines), adaptez donc cet effet pour que la combinaison fonctionne ! 
+
+![Capture demo advanced starfield](./images/Demo_starfield_advanced.png)
 
 ## 8. Effet 4 : Palette cycling
 
@@ -1631,7 +1653,7 @@ uint8_t *indices = malloc(LARGEUR * HAUTEUR * sizeof(uint8_t));
 // nos 256 couleurs 32bits de notre palette, chacune stockée à un indice donné
 uint32_t *palette = malloc(256 * sizeof(uint32_t));
 
-// notre buffer d’affichange classique
+// notre buffer d’affichange classique - déclaré dans main.c
 uint32_t *buffer = malloc(LARGEUR * HAUTEUR * sizeof(uint32_t)); 
 ```
 
@@ -1708,9 +1730,13 @@ for (int i = 0; i < LARGEUR * HAUTEUR; i++) {
 
 C'est aussi simple que ça : pas de recalcul du motif, juste une addition et un masquage par pixel (qui réalise un modulo).
 
-Implémentez l’effet (ici c’est tellement simple qu’il nous semble inutile de donner le code final).
+Implémentez l’effet (ici c’est tellement simple qu’il nous semble inutile de donner le code final). Vous devriez obtenir quelque chose comme ça pour l’effet le plus simple (cercles concentriques), avec une variation cyclique des couleurs :
 
-> Pour aller plus loin : expérimentez différents déphasages, différents motifs. Essayez d’implémenter la méthode HSV pour la rotation de palette.
+![Capture démo palette cycling](./images/Demo_palette_cycling.png)
+
+
+
+> Pour aller plus loin : expérimentez différents déphasages de couleurs, différents motifs (différentes fonctions, vous pouvez combiner des fonctions entres elles : p. ex. ajoutez une sinusoïde à la fonction distance des cercles concentriques). Essayez aussi d’implémenter la méthode HSV pour la rotation de palette.
 
 ## 9. Effet 5 : Tunnel
 
