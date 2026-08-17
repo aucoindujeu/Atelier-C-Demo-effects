@@ -2,10 +2,11 @@
 Un atelier avec minifb pour apprendre la base de la programmation graphique et effets des démos oldschool
 
 To Do :
-- Ajouter captures d’écran
-- Ajouter effets annoncés :
-- Scrolling/sinus scroller
-- Starfield 2D + avancés
-- Palette cycling
-- Tunnel
-- Plasma 
+1. Ajouter effets annoncés :
+  - Tunnel
+  - Plasma
+  
+2. Autres chapitres
+   - traitement images (filtres, traitement statistique, fractales…)
+   - 3d
+   - thème : glitch art
