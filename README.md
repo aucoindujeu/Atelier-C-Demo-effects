@@ -20,6 +20,6 @@ To Do :
   - Plasma
   
 2. Autres chapitres
-   - traitement images (filtres, traitement statistique, fractales…)
+   - traitement images (effets avancés, filtres, traitement statistique, fractales…)
    - 3d
    - thème : glitch art
