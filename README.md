@@ -1,5 +1,5 @@
 # Atelier-C-Demo-effects
-Un atelier avec[ ̀minifb`](https://github.com/emoon/minifb) pour apprendre la base de la programmation graphique et effets des démos oldschool
+Un atelier avec[`minifb`](https://github.com/emoon/minifb) pour apprendre la base de la programmation graphique et effets des démos oldschool
 
 ## [Chapitre 1 : intro à `minifb` et effets démo rétro](https://github.com/aucoindujeu/Atelier-C-Demo-effects/blob/main/atelier_minifb.md)
 
