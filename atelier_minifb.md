@@ -890,7 +890,7 @@ int main(void) {
 >
 > **À explorer** : Ajoutez une deuxième balle avec une couleur différente. Faites varier le rayon de la balle en fonction du temps avec `sin`. Laissez une traîne (ne pas effacer complètement le buffer, mais assombrir légèrement à chaque frame).
 
-## Effet 1 : scroller et sinscroll
+## 5. Effet 1 : scroller et sinscroll
 
 Un grand classique des intros et démo des années 80/90 était de faire défiler un texte coloré de la manière la plus originale possible (où la trajectoire des lettres n’était pas simplement linéaire). On va donc voir dans cette section :
 
@@ -1329,7 +1329,392 @@ int main(void) {
 }
 ```
 
+## 6. Champ d’étoiles (starfield)
 
+Il s’agit d’un effet typique très populaire dans les années 80s/début 90 car il permet très simplement avec un minimum de calculs d’obtenir un effet assez impressionnant (effet 3D) qui simule le voyage à travers l'espace. Des points lumineux partent du centre de l'écran et se déplacent vers les bords, s'accélérant à mesure qu'ils "s'approchent" de l'observateur. La beauté de cet effet est qu'il repose sur une seule idée : **la perspective**. Plus une étoile est "loin" (profondeur élevée), plus elle est proche du centre et se déplace lentement. Plus elle est "proche" (profondeur faible), plus elle est éloignée du centre et se déplace vite.
+
+Alors, comment simule-t-on un rendu 3D ? On verra plus tard comment réaliser des effets 3D complexes sur des formes géométriques (avec rotation, etc.) à l’aide du calcul matriciel et la trigonométrie, mais ici rien de tout cela, on va s’en sortir avec de simples multiplications et divisions (en réalité un bête produit en croix, comme au marché pour calculer le prix de 2 kilo de tomates). En fait on va obtenir cet effet avec une simple application du théorème de Thalès (celui vu en cours de math au collège) dans le cas particulier d’une projection perspective. 
+
+### Projection avec le théorème de Thalès
+
+Voyons avec un schéma comment le problème se présente :
+
+![Schéma projection perspective - Thalès](./images/ProjectionPerspective-Thalès.png)
+
+Si on imagine avoir des étoiles (en fait juste des points / pixels) dans l’espace, de coordonnées (x, y, z), tout le problème consiste à déterminer la position (px, py) correspondante sur l’écran en deux dimensions pour chacune d’entre elle. Le problème est géométriquement très simple pour peu qu’on considère que l’observateur regarde selon un axe fixe qui traverse l’écran (le plus simple est d’imaginer un axe qui passe au milieu de l’écran et perpendiculaire à celui-ci, mais ce n’est pas obligatoire), on appellera distance focale *f* la distance entre l’observateur et l’écran. 
+
+Par exemple, si pour simplifier le raisonnement encore, on ne considère que la position x et z du point A (pour lequel y = 0), une application directe du thèorème de Thalès nous donne : 
+$$
+\frac{px}{x} = \frac{f}{z}
+$$
+ D’où, si on veut déterminer la position *px* sur l’écran, il suffit de calculer :
+$$
+px = \frac{f·x}{z}
+$$
+
+Il en va bien sûr de même pour le calcul de *py*. 
+
+Pour créer un effet de champ d’étoile basique, il suffira :
+
+1. Générer aléatoirement les coordonnées en 3 dimensions (x, y, z) d’un  certaine nombre d’étoiles
+2. Fixer la distance focale *f*
+3. Calculer la projection (px, py) de chaque étoile sur l’écran à partir de la formule ci-dessus et de leurs coorodnnées (x, y, z)
+4. Afficher les étoiles projetées
+
+> Pour une définition rigoureuse des paramètres : chaque étoile est définie par trois coordonnées : `(x, y, z)` en 3D. `x` et `y` sont les même axes de  coordonnées que sur l’écran, `z` est la profondeur (la distance à l'observateur). L'écran est à `z = 0`, et l'espace s'étend vers des `z` croissants.
+>
+> La distance focale aura pour effet de définir également l’angle de vue. Il est facile d’imaginer que plus l’observateur est éloigné de l’écran (= grande distance focale), plus l’angle de vue va être réduit (les angles entre les directions des étoiles vues à travers l’écran et l’axe z confondu avec la direction du regard de l’observateur), et au contraire que plus il s’approche de l’écran, plus l’angle de vision à travers l’écran est important. Une valeur typique pour cette distance est LARGEUR/2 ce qui donne un angle autour de 90°.
+
+Pour rester efficace à l’étape 1, il vaut mieux générer les étoiles dans un espace limité propice à l’observation : inutile de générer des étoiles derrière l’observateur où dans des zones dont il est peu probable que la projection finisse sur l’écran, qui n’est pas un plan infini. On va par exemple les générer dans les limites d’un parallélépipède dont une base est quatre fois plus grande que l’écran, mais qui peut être assez profond, le jeu étant de donner l’impression de traverser ce champ d’étoile. Ce qui nous amène au deuxième aspect de cet effet : l’animation.
+
+ ### Animation
+
+Tout l’intérêt de l’effet réside dans le défilement des étoiles qui donne l’impression subjective de déplacement au travers du champ d’étoile. Ce défilement va être obtenu en diminuant la position z des étoiles pour les rapprocher de l’observateur. 
+
+#### Accélération
+
+Pour amplifier cet effet de défilement, les étoiles éloignées apparaissant par projection plus près du centre et les étoiles proche plus près des bords, on va accélérer le défilement plus les étoiles s’approchent du centre (les étoiles éloignées proches du centre s’approcheront nettement plus lentement).
+
+Décrémenter z de cette façon fait qu’au bout d’un moment il vaudra 0 (ou deviendra négatif) pour certaines étoiles : elles auront dépassé l’observateur. Afin que l’effet soit infini et qu’il y ait toujours des étoiles à afficher, il conviendra à ce moment de réinitialiser la coordonnée `z` de ces étoiles à une profondeur aléatoire.
+
+#### Luminosité et traînée
+
+Une autre matière d’amplifier l’effet de profondeur est de, comme dans la réalité, afficher les étoiles avec une luminosité qui dépend de leur distance : les étoiles les plus lointaines sont moins lumineuses, et cette luminosité va augmenter au fur et à mesure qu’elles se rapprochent.
+
+Un autre effet sympa est de rajouter une petite traînée (une rémanence de la luminosité à l’ancienne position de l’étoile), et pour cela il faut prévoir de mémoriser l’ancienne position de l’étoile. On verra cette effet plus en détail dans la section suivante sur les améliorations que l’on peut apporter à un champ d’étoiles basique (variation de la vitesse, déplacement de la ligne de fuite, variation de la taille des étoiles, coloration des étoiles…)
+
+### Implémentation
+
+Nos étoiles, même s’il s’agit de simples pixels seront traitées comme des sprites, il est donc intéressant de créer une structure spécifique `Etoile` qui contiendra les 3 coordonnées en 3D et l’ancienne profondeur.
+
+Suivant la technique du « sprites pool » on va avoir une fonction `init_etoile()` qui va servir de générateur pour une liste d’étoiles. La suite ne pose pas de difficulté : on va parcourir la liste d’étoile, pour chacune d’entre elle :
+
+- mettre à jour la profondeur
+- calculer la position (projection) sur l’écran avec les formules ci-dessus impliquant cette profondeur,
+- vérifier si l’étoile apparaît toujours sur l’écran, si non on réinitialise sa profondeur
+- mettre à jour la luminosité de l’étoile
+- l’afficher
+
+Voilà le code source pour cet effet :
+
+**`effects/starfield.h`**
+
+```c 
+#ifndef STARFIELD_H
+#define STARFIELD_H
+
+#include <MiniFB.h>
+#include <stdint.h>
+
+void run_starfield(struct mfb_window *win, uint32_t *buffer);
+
+#endif
+```
+
+**`effects/starfield.c`**
+
+```c
+#include "starfield.h"
+#include <MiniFB.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include "utils/primitives.h"
+#include "config.h"
+
+#define NB_ETOILES 200
+#define FOCAL      160.0f   // distance focale en pixels on pourrait écrire LARGEUR/2
+
+// Structure d'une étoile : position 3D et profondeur au frame précédent.
+// z_prev permettra de calculer différent effets :
+// la taille de l'étoile en fonction de sa vitesse apparente 
+// traînée, etc. (pas implémenté tout de suite).
+typedef struct {
+    float x, y, z;
+    float z_prev;
+} Etoile;
+
+// Liste des étoiles (sprites pool)
+// static : invisible en dehors de ce fichier, pas de collision de noms
+// si d’autre fichier utilisent une liste similaire 
+// (ce sera le cas pour les effets starfield avancés)
+static Etoile etoiles[NB_ETOILES];
+
+// Initialise une étoile (générateur) à une position aléatoire dans le volume 3D
+static void init_etoile(Etoile *e) {
+    e->x = (float)(rand() % LARGEUR) - LARGEUR / 2.0f;
+    e->y = (float)(rand() % HAUTEUR) - HAUTEUR / 2.0f;
+    e->z = (float)(rand() % 256) + 1.0f;  // profondeur 1..256, jamais 0
+    e->z_prev = e->z;
+}
+
+void run_starfield(struct mfb_window *win, uint32_t *buffer) {
+
+    // srand(42) garantit que le champ d'étoiles est identique à chaque
+    // lancement. C’est utile pour le débogage. Remplacer par srand(time(NULL))
+    srand(42);
+    for (int i = 0; i < NB_ETOILES; i++)
+        init_etoile(&etoiles[i]);
+
+    // vitesse : diminution profondeur / seconde.
+    float vitesse = 20.0f;
+
+    struct mfb_timer *chrono = mfb_timer_create();
+
+    while (mfb_wait_sync(win)) {
+        double dt = mfb_timer_delta(chrono);
+
+        memset(buffer, 0, LARGEUR * HAUTEUR * sizeof(uint32_t));
+
+        for (int i = 0; i < NB_ETOILES; i++) {
+            Etoile *e = &etoiles[i];
+
+            // On sauvegarde z 
+            e->z_prev = e->z;
+
+            // Réduction de la profondeur : l'étoile se rapproche de l'observateur.
+            // L'accélération progressive (e->z * 0.01f * vitesse) crée 
+            // une accélération exponentielle :
+            // plus l'étoile est proche, plus elle avance vite.
+            e->z -= (vitesse + e->z * 0.01f * vitesse) * (float)dt;
+
+            // L'étoile a dépassé l'observateur : réinitialisation de z
+            if (e->z <= 0) {
+                init_etoile(e);
+                continue;
+            }
+
+            // Projection perspective (Thalès) :
+            //   px = x * f / z   (+ LARGEUR/2 pour centrer sur l'écran)
+            //   py = y * f / z   (+ HAUTEUR/2 pour centrer sur l'écran)
+            int px = (int)(e->x * FOCAL / e->z) + LARGEUR / 2;
+            int py = (int)(e->y * FOCAL / e->z) + HAUTEUR / 2;
+
+            // L'étoile est sortie de l'écran : on la réinitialise.
+            if (px < 0 || px >= LARGEUR || py < 0 || py >= HAUTEUR) {
+                init_etoile(e);
+                continue;
+            }
+
+            // Luminosité inversement proportionnelle à la profondeur :
+            // loin (z=256) → lum=0
+            //  proche (z=0) → lum=255 
+            uint8_t lum = (uint8_t)(255.0f * (1.0f - e->z / 256.0f));
+            plot(buffer, px, py, MFB_RGB(lum, lum, lum));
+        }
+
+        mfb_update_state etat = mfb_update_ex(win, buffer, LARGEUR, HAUTEUR);
+        if (etat != MFB_STATE_OK) break;
+    }
+
+    mfb_timer_destroy(chrono);
+}
+```
+
+> Ne pas oublier d’inclure le header et de d’appeler `run_starfield()` dans `main.c` et de mettre à jour `CMakeLists.txt`!
+
+
+
+## 7. Effet 3 : champ d’étoile avancé
+
+### Enrichissements
+
+Notre champ d’étoile crée un vrai effet de profondeur, mais il est un peu ennuyeux. L’intérêt d’une démo est d’aller plus loin en inventant des effets un peu plus impressionnant (c’est la raison d’être des démo : surprendre avec de l’inventitivité et des prouesse technqieus). Parmi ces améliorations ont peut suggérer : vitesse variable, rotation du point de fuite, couleurs, traînées. Le meiux quand on construit un effet est d’impélémenter un effet basique, qui montre qu’on comprend le principe et son implémentation, puis de l’enrichir petit à petit, couche après couche. Cette section montre comment paramétrer l'effet de façon interactive et ajouter d’autres couches visuelles. Charge à vous d’en inventer d’autres !
+
+### Contrôle de la vitesse et de la direction
+
+Ajoutez un contrôle clavier pour faire varier la vitesse en temps réel. La vitesse peut même devenir négative (marche arrière), ce qui donne l'impression de reculer dans l'espace.
+
+```c
+// Dans la boucle, avant la mise à jour des étoiles :
+const uint8_t *touches = mfb_get_key_buffer(win);
+if (touches[MFB_KB_KEY_UP])    vitesse += 50.0f * (float)dt;
+if (touches[MFB_KB_KEY_DOWN])  vitesse -= 50.0f * (float)dt;
+// On plafonne, on bride pour éviter les valeurs extrêmes
+if (vitesse >  500.0f) vitesse =  500.0f;
+if (vitesse < -500.0f) vitesse = -500.0f;
+```
+
+> **À vous de jouer : correction du cadre d'apparition en vitesse négative**
+>
+> Observez attentivement ce qui se passe quand vous passez en vitesse négative : les étoiles semblent apparaître dans une zone plus petite que l'écran, laissant les bords vides. Pourquoi ?
+>
+> Rappelez-vous la formule de projection : `px = x * FOCAL / z + LARGEUR/2`. La position `x` d'une étoile est initialisée aléatoirement dans `[-LARGEUR/2, LARGEUR/2]`, et sa profondeur `z` dans `[1, 256]`. À grande profondeur, même une étoile à `x = LARGEUR/2` se projette près du centre car `FOCAL/z` est petit. En vitesse normale, cela ne pose pas de problème car les étoiles partent de loin et grossissent vers les bords. En vitesse négative, les étoiles sont censées partir de près (`z` petit) et s'éloigner, or elles sont réinitialisées à grande profondeur (ce qu’on a défini par défaut car l’effet de base est de rapprocher lse étoiles et là on fait l’inverse) et n'atteignent jamais les bords de l'écran. Dans cette nouvelle situation, leur point de départ est projeté près du centre (car comme nous venons de le dire `z` est grand)et ensuite elles fuient vers ce centre. Comment résoudriez-vous ce problème ?
+>
+> **Piste de résolution** : introduisez une constante `Z_INIT_MAX` qui contrôle la profondeur max d'apparition des étoiles quand, et une constante `Z_INIT_MIN` pour la profondeur minimale. Vous utiliserez ces constantes pour ajuster la profondeur d’apparition des étoiles en fontion de la situation. En vitesse négative, initialisez `z` dans `[Z_INIT_MIN, Z_INIT_MIN + delta]` de manière à ce que les étoiles apparaissent dans un intervalle `delta`  près de l'observateur, et ajustez en conséquence la plage de `x` et `y` pour couvrir tout l'écran à cette profondeur. La formule inverse de la projection vous donnera la plage de `x` nécessaire pour atteindre les bords : `x_max = (LARGEUR/2) * z / FOCAL`.
+
+### Déplacement du centre de convergence
+
+Le point de convergence des étoiles (leur origine perçue) ou point de fuite de la perspective (même si les étoiles en proviennent plutôt qu‘y fuir) peut se déplacer sur l'écran, simulant un changement de cap. On paramétrise `cx` et `cy` (le centre de projection) et on modifie ces positions de manière cyclique selon une courbe sinus juste avant de calculer la projection :
+
+```c
+double t = mfb_timer_now(chrono);
+float cx = LARGEUR  / 2.0f + 60.0f * sinf((float)t * 0.4f);
+float cy = HAUTEUR / 2.0f + 40.0f * sinf((float)t * 0.3f);
+
+// Dans la projection :
+int px = (int)(e->x * FOCAL / e->z) + (int)cx;
+int py = (int)(e->y * FOCAL / e->z) + (int)cy;
+```
+
+Bien sûr vous pouvez faire en sorte que la direction de ce centre de suite soit impacté par l’appuie d’une touche plutôt qu’une ocscillation automatique (par exemple l’appui sur les flèches gauche et droite jouent sur des variables `dx` et `dy` qui décalent le centre de fuite).
+
+### Traînées et taille variable
+
+Une étoile proche doit apparaître plus grande qu'une étoile lointaine. Pour cela, on peut dessiner un pixel plus grand (un petit carré 2×2 ou 3×3) selon la profondeur. 
+
+On peut aussi tracer une ligne entre la position de l'étoile au frame précédent et sa position actuelle, ce qui crée des traînes caractéristiques des animations de vitesse maximale.
+
+```c
+// Taille proportionnelle à la proximité
+int taille = (int)(8.0f * (1.0f - e->z / 256.0f)) + 1;
+for (int dy = -taille/2; dy <= taille/2; dy++)
+    for (int dx = -taille/2; dx <= taille/2; dx++)
+        plot(buffer, px + dx, py + dy, MFB_RGB(lum, lum, lum));
+
+// Traînée (position précédente → position actuelle)
+int px_prev = (int)(e->x * FOCAL / e->z_prev) + (int)cx;
+int py_prev = (int)(e->y * FOCAL / e->z_prev) + (int)cy;
+dessiner_ligne(buffer, px_prev, py_prev, px, py, MFB_RGB(lum/2, lum/2, lum));
+```
+
+> Il faut insérer ces bouts de code après le calcul de la projection et les tests de sortie d'écran, et à la place de l'appel à `plot` de la version précédente. À ce stade, on sait que l'étoile est visible et on connaît ses coordonnées écran `px`, `py` ainsi que sa profondeur actuelle `e->z` et sa profondeur précédente `e->z_prev`. Il faut aussi avoir calculé la luminosité `lum` avant.
+>
+> Avec les paramètres choisis (notamment le `8.0f` ), l’effet est grossier (gros carrés pour les étoiles), mais c’est pour mieux faire comprendre comment il fonctionne, à vous de trouver la valeur de paramètre qui mette suffisamment en valeur l’effet tout en ne donnant pas l’impression d’une résolution dégueulasse.
+>
+> Par ailleurs vous voyez qu’on dessine la traînée avec `dessiner_ligne()` il faut donc bien penser à inclure `primitives.h` pour accéder à cette fonction. Vous comprenez aussi pourquoi on a commencé à créer cette boîte à outil « primitives ». Par ailleurs la variation de profondeur  `z` d’une frame à l’autre est très faibles à petite vitesse, donc cet effet traîné n’apparaît qu’aux hautes vitesse où l’écart de profondeur devient plus important. Pour avoir des traînées plus longues, il faut soit mémoriser la position plusieurs frames à l’avance (ce qui peut être compliqué), soit tricher un peu sur le plan physique en simulant un `z_prev` beaucoup plus grand pour provoquer un écart plus important. On ne fait pas une simulation astrophysique réaliste mais une démo où c’est l’effet qui compte : on peut tricher si c’est pour la cause !
+>
+> Enfin cumuler les deux effets peut leur nuire, vous pouvez très bien programmer le passage d’un effet à l’autre par l’appuie sur une touche (`t` pour traînées/taille par exemple).
+
+### Étoiles colorées par couche
+
+Organisez les étoiles en couches (close, mid, far) avec des couleurs différentes. Les étoiles proches sont blanches-jaunâtres, les intermédiaires bleues, les lointaines violettes, cela renforce la sensation de profondeur.
+
+```c
+uint32_t couleur;
+if      (e->z < 80)  couleur = MFB_RGB(lum, lum, (uint8_t)(lum * 0.8f));      // blanc-jaune
+else if (e->z < 160) couleur = MFB_RGB((uint8_t)(lum*0.6f), (uint8_t)(lum*0.8f), lum); // bleu
+else                  couleur = MFB_RGB((uint8_t)(lum*0.8f), (uint8_t)(lum*0.4f), lum); // violet
+// plot(buffer, px, py, couleur); affichage à adapter en fonction des autres effets sélectionnés
+```
+
+> Là aussi l’effet est grossier pour le rendre visible et l’expliquer, vous pouvez très bien l’affiner en choisissant une progression de couleur plus progressive, en ajoutant des catégories de profondeur, etc.
+
+Il ne s’agit que de quelques suggesgtions, vous pouvez en chercher d’autres ou améliorer encore plus ces effets. N’oubliez pas qu’en la matière, plus on en fait, mieux c’est. L’effet doit rester lisible mais on n’est pas non plus dans l’économie, on doit en mettre plein la vue : pimp your demo !
+
+## 8. Effet 4 : Palette cycling
+
+C’est un effet typique des machines 8 et 16 bits qui affichaient peu de couleur (de la Gameboy 4 couleurs à l’Amiga, Super Nes en etc. en 256 couleurs), qui reposent essentiellement sur une gestion hardware de ces palettes. Cela permettait sans faire vraiment de calcul de créer des effets d’animation (p. ex. lave, eau…) en modifiant juste les couleurs d’une image fixe. Avec le passage aux couleurs 32bits (16 millions de couleur) ça n’a plus vraiment de sens, mais c’est une effet typique qui peut être facilement simulé si on tient à une DA « démo » ou « rétro ».
+
+Pour émuler parfaitement l'effet il suffit de définir un tableau de couleurs (notre "palette"), on peint les pixels en référence aux indices dans cette palette/tableau, et on fait tourner les indices à chaque frame.
+
+On va utilse trois tables :
+
+- un **tableau de correspondance** qui indique pour chaque pixel du buffer l’indice correspondant dans la palette. Pour obtenir des effets graphiques, on va organiser spatialement la répartition des indices avec des fonctions mathématiques qui pourront créer des motifs (cercles concentriques, oscillations, etc.), comme le montre l’illustration ci-dessous :
+
+  ![Palette cycling motif 1](./images/PaletteCycling1.png)
+
+  ![Palette cycling motif 2](./images/PaletteCycling2.png)
+
+  > On voit ici qu’il suffit de changer la couleur associé à chaque indice pour créer un effet graphique. Cette association indice/couleur est réalisée par la palette, présentée ci-dessous
+
+- la **palette** proprement dite, une liste de longueur 256 où chaque indice pointe vers une couleur. C’est cette correspondance indice/couleur qu’on va modifier à chaque frame pour avoir ce fameux effet « cycling ». 
+
+- notre **buffer** où on associe la bonne couleur 32bits à chaque pixel à partir de l’indice lu dans le tableau de correspondance pour afficher l’image obtenue.
+
+On va donc déclarer :
+
+```c
+// notre tableau de correspondance pixels/indices (motifs) qui vont de 0 à 256
+uint8_t *indices = malloc(LARGEUR * HAUTEUR * sizeof(uint8_t)); 
+
+// nos 256 couleurs 32bits de notre palette, chacune stockée à un indice donné
+uint32_t *palette = malloc(256 * sizeof(uint32_t));
+
+// notre buffer d’affichange classique
+uint32_t *buffer = malloc(LARGEUR * HAUTEUR * sizeof(uint32_t)); 
+```
+
+### Générer le tableau de motif d'indices
+
+Le motif peut être n'importe quelle fonction mathématique. Un classique assez simple (notre exemple ci-dessus) : calculer pour chaque pixel sa distance au centre, modulo 256. Cela crée des anneaux concentriques.
+
+```c
+// Initialisation unique du buffer d'indices
+for (int y = 0; y < HAUTEUR; y++) {
+    for (int x = 0; x < LARGEUR; x++) {
+        float dx = x - LARGEUR / 2.0f;
+        float dy = y - HAUTEUR / 2.0f;
+        float dist = sqrtf(dx*dx + dy*dy);
+        indices[y * LARGEUR + x] = (uint8_t)((int)dist % 256);
+    }
+}
+```
+
+Autres motifs intéressants à combiner (n’hésitez pas à tester) :
+
+- **Ondulation** : `(int)(sinf(x * 0.2f) * 40 + sinf(y * 0.15f) * 40) & 255`
+- **Diagonal** : `(x + y) & 255`
+- **XOR** : `(x ^ y) & 255`
+
+### Générer la palette
+
+Contrairement à ce qu’on pourrait penser, on ne va pas générer la palette n’importe comment en associant au hasard un ensemble de couleurs qui nous plaît avec les indices possibles. Notre objectif est de décaler les indices des couleurs pour créer quelque chose de joli, on va donc structurer un peu la manière dont on construit la palette. 
+
+Notre palette est un tableau de 256 couleurs qui devra former un **cycle continu** : la couleur 255 doit être visuellement proche de la couleur 0, pour que la rotation de la palette soit fluide et sans saut visible. C'est la contrainte principale : une palette pour le cycling n'est pas un dégradé linéaire du noir au blanc (qui passerait alors brutalement du noir au blanc quand on fait le tour), c'est une boucle fermée sans « saut » entre teinte.
+
+Il existe deux façons classiques de construire cette boucle :
+
+**Approche HSV** : il y a plusieurs espace colorimétrique pour représenter les couleurs. On a manipulé jusqu’ici le très populaire RGB (combinaison linéaire de trois couleurs primaires), mais il en existe d’autre, dont un qui est très pratique pour boucler sur les couleurs car il est organisé comme un cycle : le **HSV** (*Hue, Saturation, Value* ou *Teinte, Saturation, Lumière* en français). Allez voir les schémas sur [l’article Wikipedia correspondant](https://fr.wikipedia.org/wiki/Teinte_saturation_lumi%C3%A8re), vous comprendrez tout de suite comment les couleurs sont organisées en cercles. Une couleur est définie par trois composante, dont la première est la teinte, représentée sur un cercle analogue au fameux [cercle chromatique](https://fr.wikipedia.org/wiki/Cercle_chromatique), ce qui permet d’associer un angle donné à une teinte : 0° pour le rouge, 60° pour le jaune, 120° pour le vert, etc. La deuxième composante est la saturation ou pureté de la couleur, quantifiée de 0 à 1 ou de 0% à 100% : un rouge à 100% sera un rouge très saturé, « pur ». Une couleur sans saturation sera en fait blanche. Enfin vient la luminosité : à quel point la couleur est sombre : à 0% toutes les couleurs virent au noir (aucune luminosité). 
+
+Cette approche est pratique pour créer une palette circulaire : on parcourt le cercle des teintes de 0° à 360° en 256 pas, à saturation et valeur constantes. On obtiendra une roue chromatique : rouge, orange, jaune, vert, cyan, bleu, magenta, puis retour au rouge. La boucle est naturellement fermée puisque 360° = 0°. Le défaut : toutes les couleurs ont la même luminosité, le résultat est très saturé et peu nuancé. De plus, pour l’affichage, il faudra convertir le HSV en RGB (mais il existe des formules connues pour cela, cf. l’article wikipedia).
+
+**Approche par sinus déphasés** : c'est une méthode plus complexe et élaborée, et qui a aussi une familiarité avec l’utilisation du cercle chromatique, mais aux résultats plus nuancés. C’est celle que nous allons implémenter. Chaque canal RGB est un sinus de l'indice `i`, avec un déphasage différent entre les canaux :
+
+```c
+r = 128 + 127 * sin(i * 2π/256)
+g = 128 + 127 * sin(i * 2π/256 + 2π/3)   // déphasage de 120°
+b = 128 + 127 * sin(i * 2π/256 + 4π/3)   // déphasage de 240°
+```
+
+Chaque canal oscille entre 0 et 255. Les trois sinus sont déphasés de **120° (soit 2π/3 radians)** l'un par rapport à l'autre, comme les trois composantes d'une roue chromatique (rouge = 0°, vert = 120° et bleu = 240°). Quand rouge est au maximum, vert et bleu sont à des valeurs intermédiaires décalées, ce qui produit une succession de teintes : rouge → jaune → vert → cyan → bleu → magenta → rouge. La boucle est fermée car le sinus est lui-même une fonction périodique, c’est-à-dire qu’à `i=256` on retrouve exactement la même valeur qu'à `i=0`.
+
+L'avantage sur HSV : en jouant sur les fréquences (multiplier l'argument par 2 ou 3) et sur les amplitudes, on peut créer des palettes très différentes qui pourront évoquer différents éléments : flammes, océan, néon, etc., le tout avec la même structure mathématique.
+
+```c
+void generer_palette(uint32_t *pal) {
+    for (int i = 0; i < 256; i++) {
+        float t = i / 256.0f;
+        uint8_t r = (uint8_t)(128 + 127 * sinf(t * 6.28f));
+        uint8_t g = (uint8_t)(128 + 127 * sinf(t * 6.28f + 2.09f));  // décalage 2π/3
+        uint8_t b = (uint8_t)(128 + 127 * sinf(t * 6.28f + 4.19f));  // décalage 4π/3
+        pal[i] = MFB_RGB(r, g, b);
+    }
+}
+```
+
+### Rotation de la palette
+
+Par rapport à ce que nous avions annoncé concernant cette méthode, la seule chose qui reste à faire est de réaliser un cycle sur la palette (palette cycling). La rotation va tout simplement consister à décaler un offset de lecture sur les indices de la palette. Au lieu de modifier la palette elle-même, on ajoute un décalage entier à chaque indice lors de la reconstruction du buffer d'affichage :
+
+```c
+int offset = (int)(t * 60) % 256;  // 60 entrées de palette par seconde
+
+for (int i = 0; i < LARGEUR * HAUTEUR; i++) {
+    int idx = (indices[i] + offset) & 255;  // & 255 = modulo 256, rapide
+    buffer[i] = palette[idx];
+}
+```
+
+C'est aussi simple que ça : pas de recalcul du motif, juste une addition et un masquage par pixel (qui réalise un modulo).
+
+Implémentez l’effet (ici c’est tellement simple qu’il nous semble inutile de donner le code final).
+
+> Pour aller plus loin : expérimentez différents déphasages, différents motifs. Essayez d’implémenter la méthode HSV pour la rotation de palette.
+
+## 9. Effet 5 : Tunnel
+
+## 10. Effet 6 : Plasma
 
 ## Annexes
 
