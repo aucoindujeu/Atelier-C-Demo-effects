@@ -15,8 +15,7 @@ Un atelier avec[`minifb`](https://github.com/emoon/minifb) pour apprendre la bas
 9. Effet 6 : (wip)
 
 To Do :
-1. Ajouter effets annoncés :
-  - Tunnel
+1. Ajouter effets annoncés au chapitre 1 :
   - Plasma
   
 2. Autres chapitres
