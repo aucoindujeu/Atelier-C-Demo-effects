@@ -1740,7 +1740,7 @@ Implémentez l’effet (ici c’est tellement simple qu’il nous semble inutile
 
 ## 9. Effet 5 : Tunnel
 
-L’effet tunnel est de la même famille que le champ d’étoile : donner l’impression subjective de foncer dans un environnement 3D, ici un tunnel. La différence est que l’intérieur du tunnel est « plein/opaque » (texturé) et qu’on va obtenir l’effet en déformant une image 2D (une texture) pour rendre l’effet de perspective. Avec les ordinateurs modernes on pourrait très bien produire cet effet avec un modèle 3D du tube sans difficulté, mais dans cet atelier nous adoptons l’approche rétro historique. Voyons donc plutôt comment obtenir cet effet avec le minimum de ressources (ce genre d’effet tournait sur des machines 16bits, voire 8bits). On pourrait ainsi très bien tenter d’implémenter cet effet sur un microcontrôleur relié à un panneau led.
+L’effet tunnel est de la même famille que le champ d’étoile : donner l’impression subjective de foncer dans un environnement 3D, ici un tunnel. La différence est que l’intérieur du tunnel est « plein/opaque » (texturé) et qu’on va obtenir l’effet en déformant une image 2D (une texture) pour rendre l’effet de perspective. Avec les ordinateurs modernes on pourrait très bien produire cet effet avec un modèle 3D du tube sans difficulté, mais dans cet atelier nous adoptons l’approche rétro historique. Voyons donc plutôt comment obtenir cet effet avec le minimum de ressources (ce genre d’effet tournait sur des machines 16bits, voire 8bits).  C’est un effet très facile à programmer, mais les mathématiques (ou la géométrie) derrière cet effet sont un peu délicates à expliquer.
 
 L’astuce va être de précalculer les déformations appliquées à la texture pour ne pas avoir à les calculer en temps réel, à la volée, sur une machine qui calcule trop lentement pour avoir une animation fluide (les calculs doivent impérativement avoir lieu entre deux rafraîchissements). Notre problème est de déterminer quelle partie de notre texture (on appelle ces éléments des [texels]()) va être affichée à la position de chaque pixel de notre buffer, en prenant en compte la perspective.
 
@@ -1748,15 +1748,29 @@ Cette perspective (qu’il faut appréhender ici comme une fonction qui va provo
 
 Pour obtenir une animation, de manière analogue à ce qu’on a souvent vu précédemment, c’est en appliquant un offset sur ces tables que l’on va « déplacer » à l’écran les éléments du tunnel en faisant le minimum de calcul. De manière tout à fait intuitive, un offset sur la table `angle` va provoquer une rotation (on va décaler l’angle de tous les texels), et un offset sur la table `distance` va provoquer un décalage ou déplacement (on va déclaer la distance de tous les texels).
 
-Tout ceci peut paraître très abstrait dit avec des mots, ce sera peut-être plus clair avec le formalisme mathématique, objet de la section suivante.
+Tout ceci peut paraître très abstrait dit avec des mots, ce sera sûrement plus clair avec une représentation géométrique, puis le formalisme mathématique, objet de la section suivante.
 
 ### Modèle mathématique
+
+#### Géométrie
+
+Nous disposons d’une texture en 2D, de forme rectangulaire ou carrée. Pour la plaquer sur un tunnel, on doit trouver une transformation géométrique qui la replie en un cylindre, puis la projette sur un plan (l’écran), perpendiculaire à l’axe du cylindre et centré sur cet axe :
+
+![Illustration transformation texture en cylindre et projection sur l’écran](./images/Tunnel_cylindre.png)
+
+On a repéré sur cette illustration quelques points (disques de couleur) pour qu’on voit la correspondance entre la texture 2D / le cylindre / la projection sur l’écran.
+
+Sur le schéma on indique que pour retrouver le texel correspondant à un pixel donné de l’écran, on « normalise les coordonnées polaires du pixel sur la texture ». Pour mieux comprendre, on est obligé de passer par les formules mathématiques.
+
+
+
+#### Formules
 
 Pour chaque pixel de l'écran de coordonnées `(x, y)` (centrées à l'origine), on calcule :
 
 ```
 angle    = atan2(y, x)                   → coordonnée U dans la texture [0, 2π]
-distance = longueur_tunnel / sqrt(x²+y²) → coordonnée V (profondeur dans le tunnel)
+distance = longueur_tunnel / sqrt(x²+y²) → coordonnée V (profondeur dans le tunnel) autrement dit L/r
 ```
 
 > Pour déterminer l’angle vers le centre, on va utiliser la fameuse fonction  `atan2()`. Si vous ne la connaissez pas voici [une explication dans cet autre atelier](https://github.com/aucoindujeu/codeclub/tree/main/pygame/boids#annexe--orientation-et-trigonom%C3%A9trie) car elle est très importante dès qu’on doit déterminer un angle entre deux points (très utile dans la programmation de jeux vidéo, la simulation ou encore la programmation graphique comme ici).
@@ -1767,7 +1781,40 @@ La coordonnée U correspond à la position angulaire autour du tunnel (0 = droit
 
 La coordonnée V correspond à la position en profondeur le long du tube .
 
-Pour l'animation, on ajoute un décalage temporel (fonction du temps) à chaque coordonnée :
+Jusqu’ici on comprend à peut près, vu qu’on manipule un cylindre vu du dessus, pourquoi on cherche à trouver un angle et une distance. Mais le point essentiel est qu’ensuite on va « normaliser » ces valeurs dans le repère de la texture. Cela mérite un peu plus d’explications.
+
+La texture n'est **pas** lue depuis son centre (contrairement au repère qu’on a placé au centre de l’écran, vu que ce sera le point de fuite), elle est lue depuis son coin supérieur gauche *comme toute image*, avec U dans `[0, TEX_W[` et V dans `[0, TEX_H[` (les dimensions de la texture sont `TEX_W × TEX_H`). Le "bon repère" sur la texture est donc rectangulaire, pas polaire.
+
+Ce qui se passe c'est que `atan2` retourne un angle dans `[-π, π]` donc on le normalise ensuite en un entier dans `[0, TEX_W[`  pour retrouver une coordonnée dans  `[0, TEX_W[` (la dimension de la texture) :
+
+```c
+table_u[...] = (int)(atan2(fy, fx) / M_PI * TEX_W / 2.0f + TEX_W) % TEX_W;
+```
+
+Et `L/r` donne une valeur qui peut aller jusqu’à l’infini qu'on va normaliser en `[0, TEX_H[` :
+
+```c
+table_v[...] = (int)(longueur / r * TEX_H) % TEX_H;
+```
+
+Donc la transformation complète est :
+
+```
+coordonnées écran (x, y)  →  polaires (θ, r)  →  texel (U, V) dans [0, TEX_W[ × [0, TEX_H[
+```
+
+La texture est lue comme une **carte rectangulaire du cylindre**, exactement comme une carte du monde rectangulaire qui représente une sphère. L'axe horizontal U représente le tour complet du tunnel (0° à 360°), l'axe vertical V représente la profondeur. La texture carrée est donc "enroulée" autour du cylindre du tunnel et son bord gauche rejoint son bord droit (U=0 et U=TEX_W correspondent au même endroit angulaire, ce qui correspond aux points violets sur le schéma au-dessus). Cela explique pourquoi le damier semble continu sans couture visible dans notre effet.
+
+C'est ce qu'on appelle un **dépliage UV** (UV unwrapping), une technique centrale en 3D : on projette une surface 3D sur un plan 2D pour pouvoir lui appliquer une texture rectangulaire. Ici on fait exactement ça, **mais à l'envers** (ce qui rend l’explication contre-intuitive) : on part de l'écran 2D et on calcule pour chaque pixel où il "tombe" sur la texture dépliée du cylindre.
+
+> Pour aller un peu plus loin dans l’explication si vous n’êtes pas encore perdu. Tout le « sel » de l’effet est dans la non-linéarité de la transformation : on voit que plus on s’approche du centre et plus la texture est « écrasée » ou compressée, alors que sur les bords elle est plutôt « expansée », ce qui contribue à l’effet de perspective. En fait si on regarde le calcul de nos distances (V = L/r) :
+>
+> - Deux pixels très proches du centre (r=1 et r=2) : leurs V valent L/1 et L/2 soit une différence de L/2 entre les deux, soit un rapport de 1 à 2
+> - Deux pixels loin du centre (r=80 et r=81) : leurs V valent L/80 et L/81, cette fois la différence est de L/6480, ce qui est une valeur minuscule
+>
+> Donc des pixels très proches sur l'écran près du centre correspondent à des points très éloignés dans la texture (beaucoup de texture est "compressée" vers le centre, c’est ça qui est contre-intuitif : on trouve une grande valeur ce qui correspond à une réduction de la texture). Et des pixels très espacés sur les bords correspondent à des points très proches dans la texture.
+
+Revenons à notre effet et notamment l'animation, on ajoute un décalage temporel (fonction du temps) à chaque coordonnée :
 
 - Décalage sur U : `rotation` du tunnel sur lui-même
 - Décalage sur V : `avancement`  dans le tunnel
@@ -1806,7 +1853,7 @@ void generer_texture_damier(void) {
 
 ### Précalcul des tables
 
-On stocke pour chaque pixel de l'écran son angle et sa distance, normalisés en coordonnées entières dans la texture (vu qu’on va faire la correspondance point à point avec celle-ci). Ces tables sont des tableaux `int` de taille `LARGEUR × HAUTEUR`.
+On stocke pour chaque pixel de l'écran son angle et sa distance, normalisés en coordonnées entières par rapport à la texture (vu qu’on va faire la correspondance point à point avec celle-ci). Ces tables sont des tableaux `int` de taille `LARGEUR × HAUTEUR`.
 
 ```c
 static int table_u[LARGEUR * HAUTEUR];  // coordonnée texture horizontale
