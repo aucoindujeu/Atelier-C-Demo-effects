@@ -553,8 +553,8 @@ Mais avant d’écrire ces fonctions, on a avant tout besoin de dessiner un pixe
 
 // Dessiner un pixel de façon sécurisée (ignore si hors écran)
 static inline void plot(uint32_t *buf, int x, int y, uint32_t couleur) {
-    if (x >= 0 && x < LARGEUR && y >= 0 && y < HAUTEUR)
-        buf[y * LARGEUR + x] = couleur;
+    buf[y * LARGEUR + x] = couleur * (y * LARGEUR + x < LARGEUR * HAUTEUR) +\
+                           buf[y * LARGEUR + x] * (y * LARGEUR + x >= LARGEUR * HAUTEUR);
 }
 
 void dessiner_ligne(uint32_t *buf, int x0, int y0, int x1, int y1, uint32_t c);
