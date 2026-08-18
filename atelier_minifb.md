@@ -534,12 +534,12 @@ Regroupez ces fonctions dans `src/utils/primitives.c` et leur déclaration dans 
 Dans `primitives.h` on va déclarer quelques fonctions pour tracer des primitives, vous pouvez les enrichir selon vos besoins. Ici on propose juste :
 
 - une fonction `dessiner_ligne()`  pour tracer une ligne dans un buffer donné entre deux points et selon une couleur précise (6 arguments)
-- une fonction `dessiner_rect()` pour dessiner un rectangle (contour) dans un buffer donné à partir d’un point donné comme origine et selon une largeur et hauteur, et une couleur (5  arguments)
-- une  fonction `remplir_rect()` pour dessiner un rectangle plein cette fois, selon les mêmes arguments que précédemment. Vous aurez remarqué quand dans la plupart des framework on dispose d’une fonction « dessiner rectangle » et c’est la valeur d’un drapeau qui  indique si le rectangle dessiné est plein ou vide. Si vous préférez vous pouvez implémenter cette stratégie plutôt.
+- une fonction `dessiner_rect()` pour dessiner un rectangle (contour) dans un buffer donné à partir d’un point donné comme origine et selon une largeur et hauteur, et une couleur (6  arguments)
+- une  fonction `remplir_rect()` pour dessiner un rectangle plein cette fois, selon les mêmes arguments que précédemment. Vous aurez remarqué que dans la plupart des frameworks on dispose d’une fonction « dessiner rectangle » et c’est la valeur d’un drapeau qui  indique si le rectangle dessiné est plein ou vide. Si vous préférez vous pouvez plutôt implémenter cette stratégie
 - enfin une fonction `dessiner_cercle()` pour dessiner un cercle dans un buffer à partir d’un point (centre) et selon un rayon et une couleur (5 arguments)
-- vous pouvez bien sûr ajouter toutes les autres primitives qui vous semblent nécessaire (polygone, triangle…)
+- vous pouvez bien sûr ajouter toutes les autres primitives qui vous semblent nécessaires (polygone, triangle…)
 
-Mais avant d’écrire ces fonctions, on a avant tout besoin de dessiner un pixel, car c’est à partir de là que les primitives pourront être tracées. Cette fonction `plot()` va avoir un statut assez particulier : elle sera appelée un grand nombre de fois dès qu’on voudra afficher (écrire) quelque chose dans le buffer, c’est à dire potentiellement au minimum autant de fois que la taille du buffer, et même plus si on superpose les opérations, et ce entre chaque frame. Avec un framerate « normal » de 60 FPS on se rend vite compte qu’il faut optimiser les appels à cette fonction. Pour gagner du temps, plutôt que de l’appeler comme une fonction « normale », on va demander au compilateur de substituer le corps de la fonction à chaque endroit où elle est appelée, elle sera donc exécutée au fil de la lecture du code par la machine. Pour demander cette substitution on va utiliser le mot clef `inline` en C. Cela impose d’écrire la fonction entière dans le header, afin que tout fonction qui en a besoin puisse la trouver (ce qui ne serait pas le cas si on la mettait dans `primitives.c` dont les fonctions ne sont accessibles que par un appel classique, e qui induirait une erreur du compilateur lors de l’édition des liens). On va aussi utiliser le mot clef `static` pour que chaque fichier qui appelle ce header dispose de sa propre copie sans être visible par les autres partie du code (sinon tout est « mélangé » et on aura potentiellement un problème à l’édition des liens aussi).
+Mais avant d’écrire ces fonctions, on a avant tout besoin de dessiner un pixel, car c’est à partir de là que les primitives pourront être tracées. Cette fonction `plot()` va avoir un statut assez particulier : elle sera appelée un grand nombre de fois dès qu’on voudra afficher (écrire) quelque chose dans le buffer, c’est à dire potentiellement au minimum autant de fois que la taille du buffer, et même plus si on superpose les opérations, et ce entre chaque frame. Avec un framerate « normal » de 60 FPS on se rend vite compte qu’il faut optimiser les appels à cette fonction. Pour gagner du temps, plutôt que de d’appeler `plot()` comme une fonction « normale », on va demander au compilateur de substituer le corps de la fonction à chaque endroit où elle est appelée, elle sera donc exécutée au fil de la lecture du code par la machine. Pour demander cette substitution on va utiliser le mot clef `inline` en C. Cela impose d’écrire la fonction entière dans le header, afin que toute autre fonction qui en aurait besoin puisse la trouver (ce qui ne serait pas le cas si on la mettait dans `primitives.c` dont les fonctions ne sont accessibles que par un appel classique, ce qui induirait une erreur du compilateur lors de l’édition des liens). On va aussi utiliser le mot clef `static` pour que chaque fichier qui appelle ce header dispose de sa propre copie sans être visible par les autres partie du code (sinon tout est « mélangé » et on aura potentiellement un problème à l’édition des liens aussi).
 
 ```c
 // primitives.h
@@ -1618,9 +1618,9 @@ Et si on joue sur la taille des étoiles :
 
 ![Capture démo starfield avec effet taillle](./images/Demo_starfield_advanced_taille.png)
 
+> On remarque que l’on peut se retrouver avec des « petites étoiles » (donc des étoiles plus éloignée) dessinées devant des « grosses étoiles » plus proches. C’est parce qu’on dessine les étoiles dans l’ordre où elles apparaissent dans le buffer, et non pas en fonction de leur profondeur (dessiner les étoiles éloignées d’abord et les étoiles plus proches en dernier). Est-il possible de modifier notre code dans ce sens ? À vous de jouer !
 
-
-On voit que si on combine effets taille et traînées en même temps ça ne marche pas bien (les traînées restent de petites lignes fines), adaptez donc cet effet pour que la combinaison fonctionne ! 
+Enfin on voit que si on combine notre implémentation des effets taille et traînées en même temps ça ne marche pas bien (les traînées restent de petites lignes fines), adaptez donc notre implémentation de cet effet traînée pour que la combinaison fonctionne ! 
 
 ![Capture demo advanced starfield](./images/Demo_starfield_advanced.png)
 
@@ -1740,6 +1740,122 @@ Implémentez l’effet (ici c’est tellement simple qu’il nous semble inutile
 
 ## 9. Effet 5 : Tunnel
 
+L’effet tunnel est de la même famille que le champ d’étoile : donner l’impression subjective de foncer dans un environnement 3D, ici un tunnel. La différence est que l’intérieur du tunnel est « plein/opaque » (texturé) et qu’on va obtenir l’effet en déformant une image 2D (une texture) pour rendre l’effet de perspective. Avec les ordinateurs modernes on pourrait très bien produire cet effet avec un modèle 3D du tube sans difficulté, mais dans cet atelier nous adoptons l’approche rétro historique. Voyons donc plutôt comment obtenir cet effet avec le minimum de ressources (ce genre d’effet tournait sur des machines 16bits, voire 8bits). On pourrait ainsi très bien tenter d’implémenter cet effet sur un microcontrôleur relié à un panneau led.
+
+L’astuce va être de précalculer les déformations appliquées à la texture pour ne pas avoir à les calculer en temps réel, à la volée, sur une machine qui calcule trop lentement pour avoir une animation fluide (les calculs doivent impérativement avoir lieu entre deux rafraîchissements). Notre problème est de déterminer quelle partie de notre texture (on appelle ces éléments des [texels]()) va être affichée à la position de chaque pixel de notre buffer, en prenant en compte la perspective.
+
+Cette perspective (qu’il faut appréhender ici comme une fonction qui va provoquer une déformation) dépend de deux grandeurs physiques : la distance du pixel considéré au centre et l’angle vers le centre, ce centre constituant l’origine de notre repère. Ce sont ces deux grandeurs qu’on va précalculer, on va donc créer une table `distance` et une table `angle`. C’est en interrogeant pour chaque pixel du buffer ces tables que notre fonction `run_tunnel()` va pouvoir déterminer quel texel dessiner sur chaque pixel.
+
+Pour obtenir une animation, de manière analogue à ce qu’on a souvent vu précédemment, c’est en appliquant un offset sur ces tables que l’on va « déplacer » à l’écran les éléments du tunnel en faisant le minimum de calcul. De manière tout à fait intuitive, un offset sur la table `angle` va provoquer une rotation (on va décaler l’angle de tous les texels), et un offset sur la table `distance` va provoquer un décalage ou déplacement (on va déclaer la distance de tous les texels).
+
+Tout ceci peut paraître très abstrait dit avec des mots, ce sera peut-être plus clair avec le formalisme mathématique, objet de la section suivante.
+
+### Modèle mathématique
+
+Pour chaque pixel de l'écran de coordonnées `(x, y)` (centrées à l'origine), on calcule :
+
+```
+angle    = atan2(y, x)                   → coordonnée U dans la texture [0, 2π]
+distance = longueur_tunnel / sqrt(x²+y²) → coordonnée V (profondeur dans le tunnel)
+```
+
+> Pour déterminer l’angle vers le centre, on va utiliser la fameuse fonction  `atan2()`. Si vous ne la connaissez pas voici [une explication dans cet autre atelier](https://github.com/aucoindujeu/codeclub/tree/main/pygame/boids#annexe--orientation-et-trigonom%C3%A9trie) car elle est très importante dès qu’on doit déterminer un angle entre deux points (très utile dans la programmation de jeux vidéo, la simulation ou encore la programmation graphique comme ici).
+>
+> Pour la distance, on calcule en fait l’inverse de la distance au centre : on obtiendra une très grande valeur pou les pixels proche du centre (qui seront donc rendus comme très éloignés), et une petite valeur pour les pixels du bord de l’écran (c.-à-d. loin du centre), participant à créer l’effet de profondeur.
+
+La coordonnée U correspond à la position angulaire autour du tunnel (0 = droite, π = gauche, 2π = retour). 
+
+La coordonnée V correspond à la position en profondeur le long du tube .
+
+Pour l'animation, on ajoute un décalage temporel (fonction du temps) à chaque coordonnée :
+
+- Décalage sur U : `rotation` du tunnel sur lui-même
+- Décalage sur V : `avancement`  dans le tunnel
+
+```c
+u_texel = (int)((angle  / π) * TEX_W / 2 + rotation  * t) mod TEX_W
+v_texel = (int)(distance                  + avancement * t) mod TEX_H
+```
+
+> TEX_W et TEX_H sont les dimension de notre texture, qui a une dimension finie, alors que la distance que l’on calcule peut aller jusqu’à l’infini (fonction inverse). Donc on prend le modulo de cette distance par les dimension de la texture, de manière  à ce que si on a une distance calculée pour un pixel dépasse les dimensions de la texture, on retombe à l’intérieur de la texture, ce qui aura pour effet de répéter (tile) la texture à… l’infini.
+
+Maintenant qu’on sait comment on va faire nos calculs, il manque deux éléments pour l’implémentation : la texture, et la génération des tables. On pourra ensuite procéder au rendu (affichage).
+
+### Texture
+
+On ne sait pas encore comment charger des images existante (à moins de créer notre propre format de fichier, ce qui est tout à fait faisable), on va se contenter d’en générer une de manière procédurale, qui nous permettra de bien voir les déformations. À ce titre un damier de taille 256×256 fera parfaitement l’affaire (il vaut mieux prendre des textures dont la taille est proche de celle de la résolution de l’écran pour qu’elle reste reconnaissable, car elle sera fortement réduite plus on s’approchera du centre, et agrandie sur les bords).
+
+```c
+#define TEX_W 256
+#define TEX_H 256
+
+static uint32_t texture[TEX_W * TEX_H];
+
+void generer_texture_damier(void) {
+    for (int y = 0; y < TEX_H; y++) {
+        for (int x = 0; x < TEX_W; x++) {
+            int case_x = x / 32, case_y = y / 32;
+            uint32_t c = ((case_x + case_y) & 1)
+                         ? MFB_RGB(220, 180, 100)
+                         : MFB_RGB(40, 20, 80);
+            texture[y * TEX_W + x] = c;
+        }
+    }
+}
+```
+
+### Précalcul des tables
+
+On stocke pour chaque pixel de l'écran son angle et sa distance, normalisés en coordonnées entières dans la texture (vu qu’on va faire la correspondance point à point avec celle-ci). Ces tables sont des tableaux `int` de taille `LARGEUR × HAUTEUR`.
+
+```c
+static int table_u[LARGEUR * HAUTEUR];  // coordonnée texture horizontale
+static int table_v[LARGEUR * HAUTEUR];  // coordonnée texture verticale
+
+void precalculer_tunnel(void) {
+    float longueur = 64.0f;
+    for (int y = 0; y < HAUTEUR; y++) {
+        for (int x = 0; x < LARGEUR; x++) {
+            float fx = x - LARGEUR / 2.0f + 0.5f;
+            float fy = y - HAUTEUR / 2.0f + 0.5f;
+
+            // Éviter la division par zéro au pixel central
+            float r = sqrtf(fx*fx + fy*fy);
+            if (r < 0.5f) r = 0.5f;
+
+            // U : angle normalisé sur [0, TEX_W]
+            float angle = atan2f(fy, fx);
+            table_u[y * LARGEUR + x] = (int)(angle / (float)M_PI * TEX_W / 2.0f + TEX_W) % TEX_W;
+
+            // V : profondeur dans le tunnel
+            table_v[y * LARGEUR + x] = (int)(longueur / r * TEX_H) % TEX_H;
+        }
+    }
+}
+```
+
+### Rendu
+
+À chaque frame, pour faire le rendu, il suffit de parcourir les table avec une simple boucle double : pour chaque pixel, on lit dans les tables précalculées, on y ajoute les offsets temporels, et on reprend la couleur de la texture.
+
+```c
+// Dans la boucle principale :
+int offset_u = (int)(t * 40.0) & (TEX_W - 1);  // rotation
+int offset_v = (int)(t * 80.0) & (TEX_H - 1);  // avancement
+
+for (int i = 0; i < LARGEUR * HAUTEUR; i++) {
+    int u = (table_u[i] + offset_u) & (TEX_W - 1);
+    int v = (table_v[i] + offset_v) & (TEX_H - 1);
+    buffer[i] = texture[v * TEX_W + u];
+}
+```
+
+Et voilà ce qu’on obtient : 
+
+![Capture démo effet tunnel](./images/Demo_tunnel.png)
+
+> **Pour aller plus loin :** ajouter des contrôles pour agir sur la rotation et l’avancement. Essayez aussi de générer des textures plus complexes. Une manière accessible à notre niveau de traiter des fichiers images est d’utiliser le format `.PPM` ([Portable PixMap file format](https://fr.wikipedia.org/wiki/Portable_pixmap)) conçu durant les années 80s (on reste dans le thème) pour faciliter les échanges d’images. C’est un fichier au format texte (on pouvait donc les transmettre via messagerie électronique avec un encodage ASCII ou binaire), où chaque pixel est encodé par 3 valeurs pour la couleur (RGB), sa position dans l’image + des informations sur les caractéristiques de l’image (taille, etc.). PGM et PBM sont des variantes pour les images en niveau de gris et noir et blanc respectivement. Des logiciels comme Gimp ou Krita peuvent générer des fichiers PPM. À vous d’écrire la fonction pour les lire à partir des [spécifications](https://netpbm.sourceforge.net/doc/ppm.html) (et en inspectant un fichier .PPM généré par Gimp ou Krita).
+
 ## 10. Effet 6 : Plasma
 
 ## Annexes
@@ -1763,7 +1879,7 @@ Implémentez l’effet (ici c’est tellement simple qu’il nous semble inutile
 
 ### Pistes de lecture pour aller plus loin
 
-- [lodev.org/cgtutor](https://lodev.org/cgtutor) : Tutoriels C/C++ (SDL) sur le fire effect, le raycasting, le plasma et autres fondamentaux de la programmation graphique. Code plus ou moins directement transposable dans minifb.
+- [lodev.org/cgtutor](https://lodev.org/cgtutor) : Tutoriels C/C++ (SDL) très courts mais très clairs sur de nombreux effets démo/rétro (fire effect le plasma…) et autres fondamentaux de la programmation graphique (niveaux, filtres, analyse spectrale, raycasting, etc.). Code plus ou moins directement transposable dans minifb.
 - [sizecoding.org](http://www.sizecoding.org/wiki/Main_Page) : Un wiki pour apprendre à créer des effets démos. Pseudocode, théorie et machines/cpu d’époque (ou modernes, y compris les fantasy consoles).
 - [seancode.com/demofx](https://seancode.com/demofx) : Explication intuitive du rotozoom, fire, tunnel et plasma avec code source (Typescript).
 - [github.com/flightcrank/demo-effects](https://github.com/flightcrank/demo-effects) : Collection d'effets demoscene en C, chacun dans un fichier autonome.
