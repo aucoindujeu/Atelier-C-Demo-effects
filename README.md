@@ -14,7 +14,7 @@ Un atelier avec[`minifb`](https://github.com/emoon/minifb) pour apprendre la bas
 8. Effet 5 : Tunnel
 9. Effet 6 : Plasma
 
-To Do :
+## To Do :
 1. Autres chapitres
    - traitement images (effets avancés, filtres, traitement statistique, fractales…)
    - 3d
