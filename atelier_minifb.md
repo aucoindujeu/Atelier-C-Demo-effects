@@ -1,6 +1,6 @@
 # Atelier « démo/effetgraphique »  (Familiarisation à `minifb`)
 
-### Programmation d'effets demoscene en C
+### Programmation d'effets démo rétros (demoscene années 80/90) en C
 
 ---
 
@@ -1758,15 +1758,13 @@ Nous disposons d’une texture en 2D, de forme rectangulaire ou carrée. Pour la
 
 ![Illustration transformation texture en cylindre et projection sur l’écran](./images/Tunnel_cylindre.png)
 
-On a repéré sur cette illustration quelques points (disques de couleur) pour qu’on voit la correspondance entre la texture 2D / le cylindre / la projection sur l’écran.
+On a repéré sur cette illustration quelques points (disques de couleur) pour qu’on voit la correspondance entre la texture 2D / le cylindre / la projection sur l’écran. Notre objectif n’est pas de faire de la « vraie 3D », mais de trouver un moyen économique d’obtenir le même résultat avec une déformation de la texture, en trouvant comment faire correspondre la position d’un texel sur la texture et celle d’un pixel sur l’écran, « comme si c’était de la 3D ».
 
-Sur le schéma on indique que pour retrouver le texel correspondant à un pixel donné de l’écran, on « normalise les coordonnées polaires du pixel sur la texture ». Pour mieux comprendre, on est obligé de passer par les formules mathématiques.
-
-
+Sur le schéma on indique que pour retrouver le texel correspondant à un pixel donné de l’écran, on « normalise les coordonnées polaires du pixel sur la texture ». Pour mieux comprendre la transformation que ça décrit, on est obligé de passer par les formules mathématiques.
 
 #### Formules
 
-Pour chaque pixel de l'écran de coordonnées `(x, y)` (centrées à l'origine), on calcule :
+Comme on s’intéresser à la position des points sur un cylindre avec un centre de fuite, on comprend intuitivement l’intérêt de passer en coordonnées polaires pour repérer la position des points. Pour chaque pixel de l'écran de coordonnées `(x, y)` (centrées à l'origine), on calcule :
 
 ```
 angle    = atan2(y, x)                   → coordonnée U dans la texture [0, 2π]
@@ -1777,15 +1775,17 @@ distance = longueur_tunnel / sqrt(x²+y²) → coordonnée V (profondeur dans le
 >
 > Pour la distance, on calcule en fait l’inverse de la distance au centre : on obtiendra une très grande valeur pou les pixels proche du centre (qui seront donc rendus comme très éloignés), et une petite valeur pour les pixels du bord de l’écran (c.-à-d. loin du centre), participant à créer l’effet de profondeur.
 
-La coordonnée U correspond à la position angulaire autour du tunnel (0 = droite, π = gauche, 2π = retour). 
+Par convention quand on réalise une transformation de texture, on utilise `x` et `y` pour désigner les coordonnées ou les dimensions des vecteurs sur la texture, et `u` et `v` pour le résultat de la transformation :
 
-La coordonnée V correspond à la position en profondeur le long du tube .
+- ici la coordonnée U correspond à la position angulaire autour du tunnel (0 = droite, π = gauche, 2π = retour). 
 
-Jusqu’ici on comprend à peut près, vu qu’on manipule un cylindre vu du dessus, pourquoi on cherche à trouver un angle et une distance. Mais le point essentiel est qu’ensuite on va « normaliser » ces valeurs dans le repère de la texture. Cela mérite un peu plus d’explications.
+- et la coordonnée V correspond à la position en profondeur le long du tube .
 
-La texture n'est **pas** lue depuis son centre (contrairement au repère qu’on a placé au centre de l’écran, vu que ce sera le point de fuite), elle est lue depuis son coin supérieur gauche *comme toute image*, avec U dans `[0, TEX_W[` et V dans `[0, TEX_H[` (les dimensions de la texture sont `TEX_W × TEX_H`). Le "bon repère" sur la texture est donc rectangulaire, pas polaire.
+Jusqu’ici on comprend à peu près, vu qu’on manipule un cylindre vu du dessus, pourquoi on cherche à trouver un angle et une distance. Mais le point essentiel est qu’ensuite on va « normaliser » ces valeurs dans le repère de la texture. Cela mérite un peu plus d’explications.
 
-Ce qui se passe c'est que `atan2` retourne un angle dans `[-π, π]` donc on le normalise ensuite en un entier dans `[0, TEX_W[`  pour retrouver une coordonnée dans  `[0, TEX_W[` (la dimension de la texture) :
+La texture n'est **pas** lue depuis son centre (contrairement au repère qu’on a placé au centre de l’écran, vu que ce sera le point de fuite), elle est lue depuis son coin supérieur gauche *comme toute image*, avec U dans l’intervalle`[0, TEX_W[` et V dans `[0, TEX_H[` (les dimensions de la texture sont `TEX_W × TEX_H`). Le "bon repère" sur la texture est donc toujours rectangulaire, pas polaire.
+
+Ce qui se passe c'est que `atan2` retourne un angle dans `[-π, π]` donc on le normalise ensuite en un entier dans `[0, TEX_W[`  pour justement retrouver une coordonnée dans  `[0, TEX_W[` (la dimension de la texture) à partir d’un angle :
 
 ```c
 table_u[...] = (int)(atan2(fy, fx) / M_PI * TEX_W / 2.0f + TEX_W) % TEX_W;
@@ -1805,19 +1805,19 @@ coordonnées écran (x, y)  →  polaires (θ, r)  →  texel (U, V) dans [0, TE
 
 La texture est lue comme une **carte rectangulaire du cylindre**, exactement comme une carte du monde rectangulaire qui représente une sphère. L'axe horizontal U représente le tour complet du tunnel (0° à 360°), l'axe vertical V représente la profondeur. La texture carrée est donc "enroulée" autour du cylindre du tunnel et son bord gauche rejoint son bord droit (U=0 et U=TEX_W correspondent au même endroit angulaire, ce qui correspond aux points violets sur le schéma au-dessus). Cela explique pourquoi le damier semble continu sans couture visible dans notre effet.
 
-C'est ce qu'on appelle un **dépliage UV** (UV unwrapping), une technique centrale en 3D : on projette une surface 3D sur un plan 2D pour pouvoir lui appliquer une texture rectangulaire. Ici on fait exactement ça, **mais à l'envers** (ce qui rend l’explication contre-intuitive) : on part de l'écran 2D et on calcule pour chaque pixel où il "tombe" sur la texture dépliée du cylindre.
+C'est ce qu'on appelle un **dépliage UV** (UV unwrapping), une technique courante en 3D : on projette une surface 3D sur un plan 2D pour pouvoir lui appliquer une texture rectangulaire. Ici on fait exactement ça, **mais à l'envers** (ce qui rend l’explication contre-intuitive) : on part de l'écran 2D et on calcule pour chaque pixel où il "tombe" sur la texture dépliée du cylindre.
 
-> Pour aller un peu plus loin dans l’explication si vous n’êtes pas encore perdu. Tout le « sel » de l’effet est dans la non-linéarité de la transformation : on voit que plus on s’approche du centre et plus la texture est « écrasée » ou compressée, alors que sur les bords elle est plutôt « expansée », ce qui contribue à l’effet de perspective. En fait si on regarde le calcul de nos distances (V = L/r) :
+> Pour aller un peu plus loin dans l’explication si vous n’êtes pas encore perdu. Tout le « sel » de l’effet est dans la non-linéarité de la transformation : on voit que plus on s’approche du centre et plus la texture est « écrasée » ou compressée, alors que sur les bords elle est plutôt « expansée », ce qui contribue à l’effet de perspective. Deux exemples de calculs pour s’en rendre compte, avec le calcul de nos distances (V = L/r) :
 >
 > - Deux pixels très proches du centre (r=1 et r=2) : leurs V valent L/1 et L/2 soit une différence de L/2 entre les deux, soit un rapport de 1 à 2
 > - Deux pixels loin du centre (r=80 et r=81) : leurs V valent L/80 et L/81, cette fois la différence est de L/6480, ce qui est une valeur minuscule
 >
 > Donc des pixels très proches sur l'écran près du centre correspondent à des points très éloignés dans la texture (beaucoup de texture est "compressée" vers le centre, c’est ça qui est contre-intuitif : on trouve une grande valeur ce qui correspond à une réduction de la texture). Et des pixels très espacés sur les bords correspondent à des points très proches dans la texture.
 
-Revenons à notre effet et notamment l'animation, on ajoute un décalage temporel (fonction du temps) à chaque coordonnée :
+Revenons à notre effet et notamment l'animation. On ne cherche pas juste à créer une image fixe, on veut que ça bouge (= évolution dans le temps). Donc on ajoute un décalage temporel (fonction du temps) à chaque coordonnée :
 
-- Décalage sur U : `rotation` du tunnel sur lui-même
-- Décalage sur V : `avancement`  dans le tunnel
+- Décalage sur U : induit une `rotation` du tunnel sur lui-même
+- Décalage sur V : induit un  `avancement`  (déplacement) dans le tunnel
 
 ```c
 u_texel = (int)((angle  / π) * TEX_W / 2 + rotation  * t) mod TEX_W
@@ -1826,11 +1826,11 @@ v_texel = (int)(distance                  + avancement * t) mod TEX_H
 
 > TEX_W et TEX_H sont les dimension de notre texture, qui a une dimension finie, alors que la distance que l’on calcule peut aller jusqu’à l’infini (fonction inverse). Donc on prend le modulo de cette distance par les dimension de la texture, de manière  à ce que si on a une distance calculée pour un pixel dépasse les dimensions de la texture, on retombe à l’intérieur de la texture, ce qui aura pour effet de répéter (tile) la texture à… l’infini.
 
-Maintenant qu’on sait comment on va faire nos calculs, il manque deux éléments pour l’implémentation : la texture, et la génération des tables. On pourra ensuite procéder au rendu (affichage).
+Maintenant qu’on sait comment on va faire nos calculs, il manque deux éléments pour l’implémentation : la texture et la génération des tables. Une fois qu’on disposera de ces objets, on pourra ensuite procéder au rendu (affichage).
 
 ### Texture
 
-On ne sait pas encore comment charger des images existante (à moins de créer notre propre format de fichier, ce qui est tout à fait faisable), on va se contenter d’en générer une de manière procédurale, qui nous permettra de bien voir les déformations. À ce titre un damier de taille 256×256 fera parfaitement l’affaire (il vaut mieux prendre des textures dont la taille est proche de celle de la résolution de l’écran pour qu’elle reste reconnaissable, car elle sera fortement réduite plus on s’approchera du centre, et agrandie sur les bords).
+On ne sait pas encore comment charger des images existantes (à moins de créer notre propre format de fichier, ce qui est tout à fait faisable), on va se contenter d’en générer une de manière procédurale, qui nous permettra de bien voir les déformations. À ce titre un damier de taille 256×256 fera parfaitement l’affaire (il vaut mieux prendre des textures dont la taille est proche de celle de la résolution de l’écran pour qu’elle reste reconnaissable, car elle sera fortement réduite plus on s’approchera du centre, et agrandie sur les bords). Il sera divisé en 8 (=256/32) cases dans les deux axes :
 
 ```c
 #define TEX_W 256
@@ -1901,9 +1901,131 @@ Et voilà ce qu’on obtient :
 
 ![Capture démo effet tunnel](./images/Demo_tunnel.png)
 
-> **Pour aller plus loin :** ajouter des contrôles pour agir sur la rotation et l’avancement. Essayez aussi de générer des textures plus complexes. Une manière accessible à notre niveau de traiter des fichiers images est d’utiliser le format `.PPM` ([Portable PixMap file format](https://fr.wikipedia.org/wiki/Portable_pixmap)) conçu durant les années 80s (on reste dans le thème) pour faciliter les échanges d’images. C’est un fichier au format texte (on pouvait donc les transmettre via messagerie électronique avec un encodage ASCII ou binaire), où chaque pixel est encodé par 3 valeurs pour la couleur (RGB), sa position dans l’image + des informations sur les caractéristiques de l’image (taille, etc.). PGM et PBM sont des variantes pour les images en niveau de gris et noir et blanc respectivement. Des logiciels comme Gimp ou Krita peuvent générer des fichiers PPM. À vous d’écrire la fonction pour les lire à partir des [spécifications](https://netpbm.sourceforge.net/doc/ppm.html) (et en inspectant un fichier .PPM généré par Gimp ou Krita).
+> **Pour aller plus loin :** ajouter des contrôles pour agir sur la rotation et l’avancement. Essayez aussi de générer des textures plus complexes, ou de charger des images. Une manière accessible à notre niveau de traiter des fichiers images est d’utiliser le format `.PPM` ([Portable PixMap file format](https://fr.wikipedia.org/wiki/Portable_pixmap)) conçu durant les années 80s (on reste dans le thème) pour faciliter les échanges d’images. C’est un fichier au format texte (on pouvait donc les transmettre via messagerie électronique avec un encodage ASCII ou binaire), où chaque pixel est encodé par 3 valeurs pour la couleur (RGB), sa position dans l’image + des informations sur les caractéristiques de l’image (taille, etc.). PGM et PBM sont des variantes pour les images en niveau de gris et noir et blanc respectivement. Des logiciels comme Gimp ou Krita peuvent générer des fichiers PPM. À vous d’écrire la fonction pour les lire à partir des [spécifications](https://netpbm.sourceforge.net/doc/ppm.html) (et en inspectant un fichier .PPM qui est un format d’export possible proposé par Gimp ou Krita).
 
 ## 10. Effet 6 : Plasma
+
+On arrive au dernier effet que je vous propose d’implémenter dans cet atelier : l’effet plasma.
+
+C’est un effet qui était un incontournable au début des années 90s sur les machines 16bits, pour lequel on va encore beaucoup manipouler des fonctions trigonométriques (en les combinants). Cet effet produit des surfaces organisques, colorées et fluides, en mouvement constant. Il s’obtient très simplement par la superposition de fonctions sinus (ou plus généralement trigonométriques) prenant comme variables une ou deux dimensions spatiales, plus le temps (soit 2 ou 3 variables en tout). Le problème est que le calcul de fonctions trigonométrique est assez gourmand en ressources sur un ordinateur, on va donc encore une fois utiliser une astuces pour économiser du temps de calcul (vous l’aurez deviné : on générera des tables de précalculs).
+
+On va tout de même expliquer avant d’aller plus loin le problème que pose le calcul des fonctions trigonométriques. Un processeur sait très bien faire des opérations simples comme les additions, les soustractions, les multiplications et les divisions. Pour les fonctions plus exotiques,  c’est une autre paire de manche. Pour donner des ordres de grandeur, une multiplciation ou division sur un `float` prend de 1 à 5 cycles d’horloge, alors que le calcul d’un sinus prend lui de 20 à 100 cycles. On constate déjà qu’il y a une forte variabilité pour ce dernier calcul (qui dépend de la machine, des optimisations…). En tout cas le rapport avec une opération simple est de 1 à 2 ordres de grandeur (10 à 100 **fois** plus de cycles). Un minuscule écran de 320×200 pixels contient déjà 64 000 pixels, passer 100 cycles à calculer un sinus pour chaque pixel prendra déjà, avec un rafraîchissement de 60FPS, 4 milliards de cycles par secondes ! Un ordi à 1,8Ghz réalise 1 800 milliard de cycle par seconde. Jouable, mais pas optimum, et surtout hors de portée sur les machine d’il y a 30 ans. Et on ne parle pas des montées en résolutions.
+
+Pourquoi calculer un sinus prend autant de temps ? En fait si on peut définir mathématiquement un sinus assez simplement, on ne peut pas décomposer les opérations élémentaires qui permettent de le calculer de manière exacte de la même manière qu’on peut le faire pour des opérations impliquant une multiplication (à plusieurs chiffre, à virgule…) par exemple. On peut néanmoins obtenir un résultat approximatif par une succession d’opérations arithmétiques classiques (addition, multiplication…). Ces approximations consistent en le calcul d’une série dont la limite tend vers un sinus. Si vous vous rappelez de vos cours de math de terminale ou de première année de supérieur, il y a des séries qui admettent des fonctions trigonométriques comme limite, notamment certaines séries polynomiales. Par exemple [la série de Taylor](https://fr.wikipedia.org/wiki/S%C3%A9rie_de_Taylor) est connue de tou·te·s les étudiant·e·s en science :
+$$
+\sin(x) = \sum_{n=0}^{\infty} \frac{(-1)^n}{(2n+1)!} x^{2n+1} = x - \frac{x^3}{3!} + \frac{x^5}{5!} - \frac{x^7}{7!} + \cdots
+$$
+Plus on va loin dans le caclul de la série, et plus on aura une approximation précise de $sin(x)$. Malheureusement on voit qu’il y a dans cette série des exposants, des factorielles… ça fait beaucoup d’opérations, et ce d’autant plus qu’on calcul des indices élevés de la série qui nous garantissent un haut niveau de précision. Même si on utilise des séries plus économes en calculs (cf. [Tchebychev](https://fr.wikipedia.org/wiki/Polyn%C3%B4me_de_Tchebychev)), on comprend ainsi assez clairement pourquoi cela demande de nombreux calculs, même en faisant un arbitrage serré entre la précision et la complexité des calculs. Aujourd’hui on dispose de nombreux éléments d’optimisation (parallélisation, implémentation en « dur » de l’instruction « sin » dans les processeurs modernes, optimisations diverses par les compilateurs…). Les GPU s’en sortent (5 à 15 cycles) comme d’habitude en parallélisant le calcul et en limitant la précision du calcul. Les microcontrôleurs et les calculatrices utilisent un algorithme ([CORDIC](https://fr.wikipedia.org/wiki/CORDIC)) qui consiste en la réalisation de rotations et de décalages de bits assez efficaces (10 à 30) cycles avec une précision acceptable.
+
+Les calculs pour des effets graphiques peuvent se contenter d’une précision passable. Pour rappel, dans le même ordre d’idée, [un algorithme de manipulation de bit pour estimer l’inverse de la racine carrée d’un `float` de 32 bits](https://fr.wikipedia.org/wiki/CORDIC) qui permettait d’économiser du temps de calcul au prix d’un précision acceptable est devenu très populaire après son implémentation dans Quake III Arena. On a toujours intérêt à être sobre, et en matière de traitement graphique, il est toujours intéressant de réaliser un arbitrage entre précision et temps de calcul.
+
+En conclusion, c’est pour contourner ce coût et rendre l’effet possible sur des machines avec peu de ressources que la demoscene a popularisé la technique des **tables de sinus** : on calcule une seule fois au démarrage un tableau de N valeurs de sin() réparties sur `[0, 2π]`, puis on accède à ce tableau par un simple indice entier. Tout le processus se résume à une lecture mémoire, zéro calcul trigonométrique par frame.
+
+Si vous avez bien compris les techniques mobilisées pour les effets précédents, la présente implémentation ne devrait vous poser aucun problème.
+
+### Modèle mathématique
+
+Comme nous l’avons dit lors de la présentation de l’effet, la valeur du « plasma » en un pixel `(x, y)` au temps `t` est la somme de plusieurs ondes sinusoïdales. Chaque onde a sa propre fréquence spatiale et sa propre phase temporelle :
+
+```
+v1(x, y, t) = sin(x * fx1 + t * ft1) // onde plane de base selon dimension x
+v2(x, y, t) = sin(y * fy2 + t * ft2) // onde plane debase selon dimension y
+v3(x, y, t) = sin((x + y) * fxy + t * ft3) // on mixe les deux dimensions spatiales
+v4(x, y, t) = sin(sqrt((x - cx)² + (y - cy)²) * fr + t * ft4) // équation de cercle
+
+plasma(x, y, t) = (v1 + v2 + v3 + v4) / 8.0 + 0.5   // valeur dans [0, 1]
+```
+
+> Si vous voulez voir à quoi ressemble chaque fonction individuellement, n’hésitez pas à les tracer soit avec un petit script matplolib soit sur gnuplot (de nombreux site en proposent une instance en ligne)
+
+La dernière onde `v4` est particulièrement intéressante : elle est radiale, centrée en `(cx, cy)`, et crée des anneaux concentriques qui s'animent. Vous pouvez trouver d’autre fonctions (notamment paramétriques) qui réalisent des formes intéressantes, n’hésitez pas à faire vos recherches ou expérimentations. En déplaçant `(cx, cy)` selon le temps (avec des sinus), les anneaux se déforment et s'entremêlent avec les ondes planes.
+
+La valeur finale, normalisée dans `[0, 1]`, est convertie en couleur via une palette (ou directement en RGB avec des sinus déphasés sur chaque canal, comme on l’a vu sur le palette cycling).
+
+Calculer comment normaliser la somme de plusieurs fonction peut être source d’erreur : comment trouver par quel nombre il faut diviser à la fin ? Voilà un exemple pour en comprendre la logique (pour que vous puissiez l’adapter dans le cas où vous utilisiez un nombre différent de fonction ou des fonctions au comportement différent) :
+
+Nous combinons 4 ondes et l’on veut ramener la somme de ces quatre ondes dans l'intervalle `[0 ; 1]` pour pouvoir l'utiliser comme argument d'une palette ou d'une conversion RGB. Chaque onde `vi` est un sinus, donc appartenant à l’intervalle `[-1 ; 1]`. La somme des quatre sinus tombe donc dans `[-4 ; 4]`. Pour normaliser `[-4 ; 4]` vers `[0 ; 1]` on applique la transformation affine classique :
+
+```
+valeur_normalisée = (somme - min) / (max - min)
+                  = (somme - (-4)) / (4 - (-4))
+                  = (somme + 4) / 8
+                  = somme / 8 + 0.5
+```
+
+Une manière intuitive de voir cette formule est de se dire qu’on ramène [-4 ; 4] à [-0.5 ; 0.5] en divisant par 8, qu’on décale ensuite jsuqu’à [0 ; 1] en ajoutant +0.5. 
+
+### Optimisation : tables de sinus précalculées
+
+Appeler `sinf` pour chaque pixel de chaque frame est coûteux. La technique classique est de précalculer un tableau de `sin` pour 256 ou 1024 valeurs, puis d'utiliser des indices entiers. Avec une précision suffisante, l'effet est indiscernable de la version calculée à la volée.
+
+```c
+#define SIN_TABLE_SIZE 1024
+static float sin_table[SIN_TABLE_SIZE];
+
+void init_sin_table(void) {
+    for (int i = 0; i < SIN_TABLE_SIZE; i++)
+        sin_table[i] = sinf(2.0f * (float)M_PI * i / SIN_TABLE_SIZE);
+}
+
+// Accès rapide : convertir un angle en indice
+#define SIN_RAPIDE(angle_rad) \
+    sin_table[((int)((angle_rad) * SIN_TABLE_SIZE / (2.0f * M_PI))) & (SIN_TABLE_SIZE - 1)]
+```
+
+Il est nécessaier d’expliquer la dernière macro, qui fait 3 choses successives :
+
+1. Convertir l'angle en indice flottant
+
+```c
+(angle_rad) * SIN_TABLE_SIZE / (2.0f * M_PI)
+```
+
+Si on veut rapidement trouver le sinus d’un angle dans la table, il faut être capable de savoir à quel indice on doit se rendre pour un angle donné. Trouver cette correspondance c’est faire correspondre l'intervalle `[0, 2π]` à l'intervalle `[0, SIN_TABLE_SIZE[`. On peut s’en sortir avec une bête règle de trois : un angle de `2π` (l’angle le plus grand, ou le dernier angle) correspond à l'indice `SIN_TABLE_SIZE `(la fin du tableau), donc un angle quelconque correspond à `angle * SIN_TABLE_SIZE / (2π)`. Par exemple avec `SIN_TABLE_SIZE = 1024` et `angle = π/2` : `(π/2) * 1024 / (2π) = 256`  soit le quart de la table, ce qui est correct π/2 étant le quart de 2π.
+
+2. Tronquer en entier
+
+```c
+(int)(...)
+```
+
+La manip précédente nous retourne un `float`, or nous avons besoin d’un indice entier pour aller chercher la valeur correspondante dans le tableau. On fait donc la conversion en entier. C’est cet arrondi qui introduit une légère imprécision dans cette technique : l'angle est arrondi à la résolution de la table. Avec 1024 entrées la résolution est de `2π/1024 ≈ 0.006` radian, ce qui est largement suffisant pour un effet visuel.
+
+3. Masquage pour le bouclage
+
+```c
+& (SIN_TABLE_SIZE - 1)
+```
+
+On a déjà utilisé cette astuce de remplacer un modulo par une opération de masquage sur les bits. C'est l'équivalent rapide de `% SIN_TABLE_SIZE`. Cette astuce fonctionne uniquement parce que `SIN_TABLE_SIZE = 1024 = 2^10`. En binaire, `1023 = 0b0000001111111111`. Le AND (&) binaire avec ce masque conserve uniquement les 10 bits de poids faible, ce qui revient à garder la valeur dans `[0, 1023]`. Cela gère automatiquement les angles négatifs et les angles supérieurs à `2π` : un indice de `1025` devient `1`, un indice de `-1` devient `1023`.
+
+C'est pour cette raison que `SIN_TABLE_SIZE` doit impérativement être une puissance de deux : si on choisissait `1000`, le masquage ne fonctionnerait plus et il faudrait revenir à `%` qui est nettement plus lent.
+
+### Détermination des couleurs
+
+Il y a deux approches possibles :
+
+**Palette externe** (comme dans l'effet palette cycling) : on mappe la valeur normalisée sur un indice 0–255, et on lit la couleur dans un tableau de palette. Cela découple la forme du plasma de ses couleurs, et on économise encore du temps de calcul.
+
+**Palette par canaux sinus** : chaque canal RGB est un sinus de la valeur de plasma, avec un déphasage différent. C'est la méthode la plus simple car on peut l’appliquer directement dans le code et elle donne des couleurs riches.
+
+```c
+// v est dans [0, 1]
+uint8_t r = (uint8_t)(128 + 127 * sinf(v * 6.28f));
+uint8_t g = (uint8_t)(128 + 127 * sinf(v * 6.28f + 2.09f));
+uint8_t b = (uint8_t)(128 + 127 * sinf(v * 6.28f + 4.19f));
+buffer[y * LARGEUR + x] = MFB_RGB(r, g, b);
+```
+
+### Implémentation finale (résultat)
+
+L’implémentation finale est ici aussi suffisamment simple pour qu’il soit inutile d’en donner le détail (criez sinon !). Vous devriez obtenir quelque chose comme cela (ici avec 5 ondes dont 4 radiales) :
+
+![Capture démo plasma](./images/Demo_plasma.png)
+
+> **Pour aller plus loin** : Supprimez des ondes une à une pour voir leur contribution individuelle. Modifier les formules de chaque ondes sur le plan spatial ou temporel. Remplacez nos tables précalculées par `sinf` par `cosf` (calcul à la volée) sur certaines ondes et comparez le temps d’exécution avec la version implémentant la table de sinus précalculée ( avec `mfb_timer_delta`). Le gain du précalcul devrait être perceptible. Utilisez la palette de l'effet palette cycling à la place de la conversion directe en RGB.
+>
+> [La démo Goa de The Black Lotus](https://www.youtube.com/watch?v=G1CfmZCbhQs) avait marqué les esprits avec un choix judicieux de palette pour leur effet plasma, et en mélangeant avec un effet tunnel !
 
 ## Annexes
 
@@ -1931,5 +2053,9 @@ Et voilà ce qu’on obtient :
 - [seancode.com/demofx](https://seancode.com/demofx) : Explication intuitive du rotozoom, fire, tunnel et plasma avec code source (Typescript).
 - [github.com/flightcrank/demo-effects](https://github.com/flightcrank/demo-effects) : Collection d'effets demoscene en C, chacun dans un fichier autonome.
 - [github.com/ponceto/dosfx](https://github.com/ponceto/dosfx) : Effets Turbo-C pour DOS, code minimal et historique
-- Chaînes Youtube :
-- Canaux Reddit :
+- Chaînes/playlsits Youtube (pour l’inspiration, peu de chaînes proposent des tuto, ceux-ci sont plutôt écrits, réf. ci-dessus) : 
+  - [une sélection de démo PC des années 90 à 2010](https://www.youtube.com/watch?v=ugPZnsRHUkc&list=PLCZfGAvgXhFEP-VB97dY2OQxsLLN7U8e6)
+  - [une sélection de démo Amiga (16bits)](https://www.youtube.com/watch?v=RPdB_zdyMbM&list=PLwds84NCmJadTeGeeXBzVuKWsdwi2Y6PB)
+  - [une sélection de démos C64 (8bits, 64ko de mémoire )](https://www.youtube.com/watch?v=3crySbzOy-E&list=PLsyTxSTQmimQWnOddcGBXpbLjEPbN49GV)
+  - [Pharmageddon, une démo sur une croix de pharmacie !](https://www.youtube.com/watch?v=Ea7pn92W-Kg)
+- Canaux Reddit : [r/creativecoding](https://www.reddit.com/r/creativecoding/), [r/computergraphics](https://www.reddit.com/r/computergraphics/) ou encore [r/Demoscene](https://www.reddit.com/r/Demoscene/) pour les plus généraux, chaque machine d’époque doit avoir des canaux dédiés.
