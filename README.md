@@ -11,14 +11,11 @@ Un atelier avec[`minifb`](https://github.com/emoon/minifb) pour apprendre la bas
 5. Effet 2 : Starfield 2D
 6. Effet 3 : Starfield avancé
 7. Effet 4 : Palette cycling
-8. Effet 5 : (wip)
-9. Effet 6 : (wip)
+8. Effet 5 : Tunnel
+9. Effet 6 : Plasma
 
 To Do :
-1. Ajouter effets annoncés au chapitre 1 :
-  - Plasma
-  
-2. Autres chapitres
+1. Autres chapitres
    - traitement images (effets avancés, filtres, traitement statistique, fractales…)
    - 3d
    - thème : glitch art
