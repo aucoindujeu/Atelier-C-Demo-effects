@@ -21,7 +21,8 @@
 7. [Effet 3 : Starfield avancé](#7-effet-3--starfield-avancé)
 8. [Effet 4 : Palette cycling](#8-effet-4--palette-cycling)
 9. [Effet 5 : Tunnel](#9-effet-5--tunnel)
-10. [Effet 6 : Plasma](#10-effet-6--plasma)
+10. [Effet 6 : Plasma](#10-effet-6--Plasma)
+11. [Le son avec miniaudio](#11-le-son-avec-miniaudio)
 
 ## 1. Installation et setup
 
@@ -1619,6 +1620,8 @@ Et si on joue sur la taille des étoiles :
 ![Capture démo starfield avec effet taillle](./images/Demo_starfield_advanced_taille.png)
 
 > On remarque que l’on peut se retrouver avec des « petites étoiles » (donc des étoiles plus éloignée) dessinées devant des « grosses étoiles » plus proches. C’est parce qu’on dessine les étoiles dans l’ordre où elles apparaissent dans le buffer, et non pas en fonction de leur profondeur (dessiner les étoiles éloignées d’abord et les étoiles plus proches en dernier). Est-il possible de modifier notre code dans ce sens ? À vous de jouer !
+>
+> Vous pouvez prendre exemple sur cette cracktro de Skid Row où la grosseur et la luminosité des étoiles est bien gérée avec des mouvements de caméra intéressant : https://www.youtube.com/watch?v=mi9M8h6JrQU
 
 Enfin on voit que si on combine notre implémentation des effets taille et traînées en même temps ça ne marche pas bien (les traînées restent de petites lignes fines), adaptez donc notre implémentation de cet effet traînée pour que la combinaison fonctionne ! 
 
@@ -1911,15 +1914,17 @@ C’est un effet qui était un incontournable au début des années 90s sur les 
 
 On va tout de même expliquer avant d’aller plus loin le problème que pose le calcul des fonctions trigonométriques. Un processeur sait très bien faire des opérations simples comme les additions, les soustractions, les multiplications et les divisions. Pour les fonctions plus exotiques,  c’est une autre paire de manche. Pour donner des ordres de grandeur, une multiplciation ou division sur un `float` prend de 1 à 5 cycles d’horloge, alors que le calcul d’un sinus prend lui de 20 à 100 cycles. On constate déjà qu’il y a une forte variabilité pour ce dernier calcul (qui dépend de la machine, des optimisations…). En tout cas le rapport avec une opération simple est de 1 à 2 ordres de grandeur (10 à 100 **fois** plus de cycles). Un minuscule écran de 320×200 pixels contient déjà 64 000 pixels, passer 100 cycles à calculer un sinus pour chaque pixel prendra déjà, avec un rafraîchissement de 60FPS, 4 milliards de cycles par secondes ! Un ordi à 1,8Ghz réalise 1 800 milliard de cycle par seconde. Jouable, mais pas optimum, et surtout hors de portée sur les machine d’il y a 30 ans. Et on ne parle pas des montées en résolutions.
 
-Pourquoi calculer un sinus prend autant de temps ? En fait si on peut définir mathématiquement un sinus assez simplement, on ne peut pas décomposer les opérations élémentaires qui permettent de le calculer de manière exacte de la même manière qu’on peut le faire pour des opérations impliquant une multiplication (à plusieurs chiffre, à virgule…) par exemple. On peut néanmoins obtenir un résultat approximatif par une succession d’opérations arithmétiques classiques (addition, multiplication…). Ces approximations consistent en le calcul d’une série dont la limite tend vers un sinus. Si vous vous rappelez de vos cours de math de terminale ou de première année de supérieur, il y a des séries qui admettent des fonctions trigonométriques comme limite, notamment certaines séries polynomiales. Par exemple [la série de Taylor](https://fr.wikipedia.org/wiki/S%C3%A9rie_de_Taylor) est connue de tou·te·s les étudiant·e·s en science :
+Pourquoi calculer un sinus prend autant de temps ? En fait si on peut définir mathématiquement un sinus assez simplement, on ne peut pas décomposer les opérations élémentaires qui permettent de le calculer de manière exacte de la même manière qu’on peut le faire pour des opérations impliquant une multiplication (à plusieurs chiffre, à virgule…) par exemple. On peut néanmoins obtenir un résultat approximatif par une succession d’opérations arithmétiques classiques (addition, multiplication…). Ces approximations consistent en le calcul d’une série dont la limite tend vers un sinus. Si vous vous rappelez de vos cours de math de terminale ou de première année de supérieur, il y a des séries qui admettent des fonctions trigonométriques comme limite, notamment certaines séries polynomiales. Par exemple [la série de Taylor](https://fr.wikipedia.org/wiki/S%C3%A9rie_de_Taylor) suivante est connue de tou·te·s les étudiant·e·s en science :
 $$
 \sin(x) = \sum_{n=0}^{\infty} \frac{(-1)^n}{(2n+1)!} x^{2n+1} = x - \frac{x^3}{3!} + \frac{x^5}{5!} - \frac{x^7}{7!} + \cdots
 $$
+> Pour $cos(x)$ la formule a exactement la même tête mais seulement avec des paramètres pairs.
+
 Plus on va loin dans le caclul de la série, et plus on aura une approximation précise de $sin(x)$. Malheureusement on voit qu’il y a dans cette série des exposants, des factorielles… ça fait beaucoup d’opérations, et ce d’autant plus qu’on calcul des indices élevés de la série qui nous garantissent un haut niveau de précision. Même si on utilise des séries plus économes en calculs (cf. [Tchebychev](https://fr.wikipedia.org/wiki/Polyn%C3%B4me_de_Tchebychev)), on comprend ainsi assez clairement pourquoi cela demande de nombreux calculs, même en faisant un arbitrage serré entre la précision et la complexité des calculs. Aujourd’hui on dispose de nombreux éléments d’optimisation (parallélisation, implémentation en « dur » de l’instruction « sin » dans les processeurs modernes, optimisations diverses par les compilateurs…). Les GPU s’en sortent (5 à 15 cycles) comme d’habitude en parallélisant le calcul et en limitant la précision du calcul. Les microcontrôleurs et les calculatrices utilisent un algorithme ([CORDIC](https://fr.wikipedia.org/wiki/CORDIC)) qui consiste en la réalisation de rotations et de décalages de bits assez efficaces (10 à 30) cycles avec une précision acceptable.
 
 Les calculs pour des effets graphiques peuvent se contenter d’une précision passable. Pour rappel, dans le même ordre d’idée, [un algorithme de manipulation de bit pour estimer l’inverse de la racine carrée d’un `float` de 32 bits](https://fr.wikipedia.org/wiki/CORDIC) qui permettait d’économiser du temps de calcul au prix d’un précision acceptable est devenu très populaire après son implémentation dans Quake III Arena. On a toujours intérêt à être sobre, et en matière de traitement graphique, il est toujours intéressant de réaliser un arbitrage entre précision et temps de calcul.
 
-En conclusion, c’est pour contourner ce coût et rendre l’effet possible sur des machines avec peu de ressources que la demoscene a popularisé la technique des **tables de sinus** : on calcule une seule fois au démarrage un tableau de N valeurs de sin() réparties sur `[0, 2π]`, puis on accède à ce tableau par un simple indice entier. Tout le processus se résume à une lecture mémoire, zéro calcul trigonométrique par frame.
+En conclusion, c’est pour contourner ce coût et rendre l’effet possible sur des machines avec peu de ressources que la demoscene a popularisé la technique des **tables de sinus** : on calcule une seule fois au démarrage un tableau de N valeurs de sin() réparties sur `[0, 2π]`, puis on accède à ce tableau par un simple indice entier. Tout le processus se résume à une lecture mémoire, zéro calcul trigonométrique par frame (il faut juste prendre le temps de générer la table une fois avant de lancer l’effet, et à la rigueur, on pourrait même la stocker en dur dans un fichier).
 
 Si vous avez bien compris les techniques mobilisées pour les effets précédents, la présente implémentation ne devrait vous poser aucun problème.
 
@@ -2019,17 +2024,278 @@ buffer[y * LARGEUR + x] = MFB_RGB(r, g, b);
 
 ### Implémentation finale (résultat)
 
-L’implémentation finale est ici aussi suffisamment simple pour qu’il soit inutile d’en donner le détail (criez sinon !). Vous devriez obtenir quelque chose comme cela (ici avec 5 ondes dont 4 radiales) :
+L’implémentation finale est ici aussi suffisamment simple pour qu’il soit inutile d’en donner le détail (criez sinon !). Vous devriez obtenir quelque chose comme cela (ici avec 5 ondes dont 4 radiales, faites votre propre cocktail de votre côté) :
 
 ![Capture démo plasma](./images/Demo_plasma.png)
 
 > **Pour aller plus loin** : Supprimez des ondes une à une pour voir leur contribution individuelle. Modifier les formules de chaque ondes sur le plan spatial ou temporel. Remplacez nos tables précalculées par `sinf` par `cosf` (calcul à la volée) sur certaines ondes et comparez le temps d’exécution avec la version implémentant la table de sinus précalculée ( avec `mfb_timer_delta`). Le gain du précalcul devrait être perceptible. Utilisez la palette de l'effet palette cycling à la place de la conversion directe en RGB.
 >
-> [La démo Goa de The Black Lotus](https://www.youtube.com/watch?v=G1CfmZCbhQs) avait marqué les esprits avec un choix judicieux de palette pour leur effet plasma, et en mélangeant avec un effet tunnel !
+> [La démo Goa de The Black Lotus](https://www.youtube.com/watch?v=G1CfmZCbhQs) avait marqué les esprits avec un choix judicieux de palette pour leur effet plasma, et en le mélangeant avec un effet tunnel !
+
+On a passé  en revue quelques effets classiques  qui permettent déjà, en les travaillant, de faire des choses intéressantes. N’hésitez pas à les combiner : par  exemple un sinscroll avec des lettres dont les couleurs changent selon un effet plasma sur un fond en champ d’étoile (ou tunnel). À vous de jouer ! 
+
+## 11. Le son avec `miniaudio`
+
+Une deémo, ce sont des images animés, mais aussi une musique. La qualité artisitque d’une démo dépend énormément de la synchronisation entre son et graphisme, qui participe à créer l’ambiance, accompagner les transitions et donner vie aux effets jusqu’à servir la narration pour les démos les plus élaborées.
+
+Sur Amiga la musique était composée sur tracker, un logiciel de composition spécifique qui organise les sons synthétisés ou enregistrés (samples) sur une grille temporelle sur plusieurs pistes. Un fichier `.mod` était généré, et un lecteur intégré était codé au sein de la démo. Nous ne reproduirons pas cette approche, nous ferons simplement appel à une bibliothèque – `miniaudio` – qui permet de lire des fichiers musicaux (`.mp3`, `.ogg`, `.wav`, etc.). On peut toujours convertir un fichier `.mod` en `.mp3` (ou autre) avec [Audacity](https://www.audacityteam.org/download/).
+
+`miniaudio` est une bibliothèque audio C dite *header-only* : elle consiste en un seul fichier `.h` à télécharger et à inclure dans votre projet (le fichier est fortement commenté : ainsi il contient sa propre doc, ne pas hésiter à le lire). Elle revendique n’avoir besoin d’aucune dépendance externe, pas de sous module à rajouter dans CMake (même s’il faudra faire une déclaration dans notre `CMakeLists.txt` ), pas d’installation système. Outre la capacité à lire les formats audio les plus courants, `miniaudio` permet le mixage de plusieurs sources simultanées (on peut donc rajouter des bruitages par dessus la musique de fond), et tourne dans un thread séparé : la boucle principale de `minifb` est indépendante et n'est jamais bloquée. C'est la solution la plus simple possible pour ajouter du son à une démo en C.
+
+Téléchargement :
+
+- À partir du dépôt Github : [https://github.com/mackron/miniaudio](https://github.com/mackron/miniaudio)
+- ou directement sur le site : [https://miniaud.io/index.html](https://miniaud.io/index.html)
+
+Dans les deux cas il n’y a qu’un seul fichier `miniaudio.h` à télécharger et placer dans `src/`.
+
+Ensuite il faut mettre à jour `CMakeLists.txt` en ajoutant le thread system (requis par miniaudio sur Linux):
+
+```cmake
+target_link_libraries(demo minifb m pthread dl)
+```
+
+### API de `miniaudio`
+
+Le moteur mis en  œuvre par `miniaudio` s’appelle  `ma_engine`, il gère le mixage et la lecture des sons, c’est à lui qu’on v a envoyer nos instructions. Le processus sera le suivant :
+
++ initialiser  `ma_engine`
++ charger le son ou le morceau depuis un fichier
++ gérer les paramètres (jouer en boucle, régler le volume sonore… )
++ jouer le son
++ arrêter le son (s’il joue en continu)
++ détruire l’instance `ma_engine`
+
+Voici les exemples de code :
+
+#### Initialisation et destruction
+
+```c
+ma_engine audio_engine;
+
+// Initialisation avec la configuration par défaut
+ma_result result = ma_engine_init(NULL, &audio_engine);
+if (result != MA_SUCCESS) {
+    // échec -> pas de sortie audio disponible
+}
+
+// Destruction en fin de programme
+ma_engine_uninit(&audio_engine);
+```
+
+#### Jouer un son une seule fois
+
+C’est laa façon la plus élémentaire de jouer un son (à utiliser pour les bruitages) :
+
+```c
+// Déclenche la lecture et oublie (c’est miniaudio gère la durée de vie)
+ma_engine_play_sound(&audio_engine, "explosion.wav", NULL);
+```
+
+#### Jouer un son en contrôlant les paramètres
+
+Pour la musique de fond ou tout son qu'on veut pouvoir contrôler (volume, pause, boucle) :
+
+```c
+ma_sound musique;
+
+// Chargement du fichier (MA_SOUND_FLAG_STREAM pour les longs fichiers)
+ma_sound_init_from_file(&audio_engine, "musique.mp3",
+    MA_SOUND_FLAG_STREAM, NULL, NULL, &musique);
+
+ma_sound_set_looping(&musique, MA_TRUE);   // lecture en boucle
+ma_sound_set_volume(&musique, 0.8f);       // volume 0.0 à 1.0
+ma_sound_start(&musique);                  // démarre la lecture
+
+// ... plus tard ...
+ma_sound_stop(&musique);                   // pause
+ma_sound_uninit(&musique);                 // libération
+```
+
+#### Temps de lecture
+
+On y reviendra plus en  d étail, mais quand on va chercher à synchroniser vidéo  et audio dans la démo, il va nous falloir un  moyen de déterminer où on en est dans le morceau qu’on est en train de jouer. L’API de `miniaudio` nous propose deux fonctions pour cela : `ma_sound_get_cursor_in_pcm_frames()` qui va nous retourner à quel endroit nous somme dans le morceau en terme de séquences, et pour convertir cette valeur en secondes, on va la diviser par la fréquence d’échantillonnage que  nous donne ` ma_engine_get_sample_rate()` :
+
+```c
+ma_uint64 position;
+ma_sound_get_cursor_in_pcm_frames(&musique, &position);
+double t_audio = (double)position / ma_engine_get_sample_rate(&engine);
+// t_audio : secondes écoulées depuis le début de la musique
+```
+
+### Implémenation dans notre code
+
+Même si avec un module header-only l’inclusion  est très simple, elle présente une subtilité :
+
+- tous  les modules qui voudront accéder à l’API de `miniaudio` devront inclurre `miniaudio.h`, classique.
+
+- mais il va falloir indiquer au compilateur qu’il faut intégrer le code de `miniaudio` et  le compiler. Cela va se faire en déclarant une macro (`MINIAUDIO_IMPLEMENTATION`), qui ne peut apparaître qu’une fois  dans notre programme. On va donc l’inclure dans `main.c` :
+
+  ```c
+  // main.c
+  
+  // la macro qui va déclencher la compilation de miniaudio. 
+  // elle ne doit pas apparaître ailleurs
+  #define MINIAUDIO_IMPLEMENTATION 
+  // puis inclusion  de miniaudio
+  #include "miniaudio.h"
+  
+  #include <MiniFB.h>
+  #include <stdlib.h>
+  #include <stdint.h>
+  #include "config.h"
+  #include "utils/primitives.h"
+  #include "effects/scroller.h"
+  #include "effects/starfield.h"
+  #include "effects/plasma.h"
+  
+  int main(void) {
+      // --- Initialisation audio ---
+      // instanciation du moteur miniaudio
+      ma_engine audio_engine;
+      if (ma_engine_init(NULL, &audio_engine) != MA_SUCCESS) {
+          // Pas de sortie audio, on continue sans son plutôt que d'abandonner
+          fprintf(stderr, "Attention : initialisation audio échouée\n");
+      }
+  
+      // on charge la musique depuis un fichier
+      ma_sound musique;
+      ma_result r = ma_sound_init_from_file(&audio_engine, "assets/musique.mp3",
+                        MA_SOUND_FLAG_STREAM, NULL, NULL, &musique);
+      if (r == MA_SUCCESS) {
+          ma_sound_set_looping(&musique, MA_TRUE); // on va lire le morceau en continu
+          ma_sound_set_volume(&musique, 1.0f); // on met le volume au max
+          ma_sound_start(&musique); // on lance la lecture
+      }
+  
+      // --- Initialisation vidéo ---
+      struct mfb_window *win = mfb_open_ex("Atelier Demo", LARGEUR, HAUTEUR,
+                                            MFB_WF_RESIZABLE);
+      if (!win) { ma_engine_uninit(&audio_engine); return 1; }
+  
+      uint32_t *buffer = malloc(LARGEUR * HAUTEUR * sizeof(uint32_t));
+      // si le buffer n’a pu être créé on quitte proprement
+      if (!buffer) { ma_engine_uninit(&audio_engine); mfb_close(win); return 1; } 
+  
+      mfb_set_target_fps(FPS);
+  
+      // --- Effets… ---
+      run_scroller(win, buffer);
+  	//…
+      
+      // --- Nettoyage ---
+      free(buffer);
+      ma_sound_uninit(&musique);
+      ma_engine_uninit(&audio_engine);
+      return 0;
+  }
+  ```
+  
+  > **Attention aux chemins :** `miniaudio` va chercher le fichier audio en chemin relatif à partir de l’endroit où vous lancez la démo. Par exemple si votre projet a cette structure :
+  >
+  > ```
+  > mon_atelier/
+  > ├── CMakeLists.txt
+  > ├── deps/
+  > │   └── minifb/
+  > ├── build/
+  > │   └── demo
+  > ├── sfx/
+  > │   └── musique.mp3
+  > └── src/
+  > ```
+  >
+  > Si le chemin indiqué à `miniaudio` est `sfx/musique.mp3` et que vous êtes dans `build` et que vous lancez la démo avec `./demo` alors `miniaudio` ne trouvera pas le fichier vu qu’il cherchera le répertoire `sfx` dans `build`. Dans ce cas il faut remonter dans `mon_atelier` et lancer la démo avec `build/demo`, et il trouvera `sfx`. 
+  >
+  > **Codes d’erreur :** On constate qu’on fait pas mal de test que tout se passe bien : le moteur est bien chargé, le morceau est bien chargé… c’est une bonne pratique pour identifier où il y a un problème et notamment quand on fait appel à des processus externes. On peut rendre le diagnostic plus facile en demandant d’afficher le code d’erreur si ça se passe mal. Par exemple quand on charge le morceau : 
+  >
+  > ```c
+  > if (r == MA_SUCCESS) {
+  >     printf("fichier chargé\n");
+  >     ma_sound_set_looping(&musique, MA_TRUE);
+  >     ma_sound_set_volume(&musique, 1.0f);
+  >     ma_sound_start(&musique);
+  > } else {
+  >     fprintf(stderr, "Erreur chargement : code %d\n", r);
+  > }
+  > ```
+  >
+  > Dans ce cas si le fichier n’est pas chargé car il ne le trouve pas, il affichera dans la console :
+  > 
+  > ```
+  > Erreur chargement : code -7
+  > ```
+  >
+  > Voici les codes des erreurs les plus courantes (récupérées [ici](https://docs.rs/miniaudio_aurex/latest/miniaudio_aurex/constant.ma_result_MA_NO_BACKEND.html)) :
+  >
+  > | Code                      | Valeur | Signification                         |
+  | ------------------------- | ------ | ------------------------------------- |
+  > | `MA_SUCCESS`              | 0      | OK                                    |
+  >| `MA_DOES_NOT_EXIST`       | -7     | Fichier introuvable                   |
+  >| `MA_INVALID_FILE`         | -10    | Format non reconnu / fichier corrompu |
+  >| `MA_FORMAT_NOT_SUPPORTED` | -200   | Format non supporté dans cette config |
+  >| `MA_NO_BACKEND`           | -203   | Pas de sortie audio disponible        |
+
+### Synchronisation audio/vidéo
+
+La synchronisation entre le son et l’image est capitale pour réaliser une bonne démo. Des effets ou des transitions qui tombent à contretemps anéantissent tous les efforts placés dans le code, on veut des flash, des déformations ou des mouvements qui sont calés avec les beats et des transitions qui collent avec des moments où la musique s’atténue, il faut des contrastes, de la tension qui monte et qui se relâche, c’est ça qui donne vie à notre démo.
+
+Pour cela il faut arriver à mesurer le temps qui s’écoule pour les effets graphiques comme pour le son. Hélas on va voir que des contraintes différentes pèsent sur l’une et l’autre mesure.
+
+#### Le problème du timer minifb
+
+Nous avons vu que `mfb_timer_now()` nous permettait de mesurer le temps écoulé entre deux frames (et déterminer le delta time). On pourrait songer utiliser cette mesure pour caler nos effet. Le problème qui va se poser est que le timer mesure le temps CPU, qui peut dériver légèrement en cas de charge système, de pause du processus, ou de tout événement extérieur, même en ayant fixé un framerate précis (p. ex. de 60FPS), c’est d’ailleurs tout le principe du delta time. De l’autre côté, l'audio, lui, avance à vitesse strictement constante, dictée par la fréquence d'échantillonnage de la carte son. Si on base les visuels sur le timer et le son sur l'horloge audio, les deux vont immanquablement dériver l'un par rapport à l'autre au fil du temps.
+
+La solution c’est de n’utiliser qu’une seule horloge de référence, la plus régulière, et donc le temps `t_audio` qu’on aura mesuré, comme référence temporelle unique pour toute la démo :
+
+```c
+// Récupération du temps audio courant (à appeler une seule fois par frame)
+ma_uint64 position;
+ma_sound_get_cursor_in_pcm_frames(&musique, &position);
+double t_audio = (double)position / ma_engine_get_sample_rate(&engine);
+```
+
+On passe ensuite `t_audio` en paramètre à chaque effet à la place du timer interne (comme on a fait jusqu’ici), et  les animations sont automatiquement verrouillées sur la musique.
+
+#### Timeline manuelle
+
+La méthode la plus simple est de définir manuellement les moments de transition dans le code, en secondes. Voici un exemple de ce à quoi ça pourrait ressembler :
+
+```c
+// Exemple de timeline pour une démo de 2 minutes
+if      (t_audio <  8.0) run_scroller(win, buffer, t_audio); // on déclenche l’effet si on est à moins de 8s
+else if (t_audio < 32.0) run_starfield(win, buffer, t_audio); // on passe au starfield si onest à plsu de 8s
+else if (t_audio < 64.0) run_plasma(win, buffer, t_audio); // etc.
+else if (t_audio < 96.0) run_tunnel(win, buffer, t_audio);
+else                     run_plasma(win, buffer, t_audio);
+```
+
+Pour construire cette timeline, ça va être très artisanal. Il va falloir écouter la musique avec un lecteur qui affiche le temps en secondes (Audacity par exemple, qui permet de poser des marqueurs aux temps forts qu’on aura repéré) et noter les temps (positions) des moments clés à laquelle on veut procéder aux transitions.
+
+Il pourra parfois être utile de passer `t_audio` à chaque effet en paramètre (selon si on a besoin de connaître la timeline ou pas). Dans chaque `run_xxx`, on remplacera le `mfb_timer_now()` local par ce `t_audio` reçu. À ce niveau, c’est à vous d’expérimenter en fonction de ce que vous voudrez faire dans votre démo en matière de gestion du temps.
+
+#### Pour aller plus loin : synchronisation automatique 
+
+La méthode qu’on vient de voir est valable pour caler les transitions entre effets. Mais si on veut une synchronisation plus précise par exemple des flashs, changement de palette ou impulsion qui se déclenchent automatiquement à chaque beat, ça va être très fastidieux à caler et pas forcément aussi précis que voulu. Il est possible d’automatiser cette synchronisation en analysant le signal audio en temps réel. En effet on peut accéder à ce signal via le callback PCM de miniaudio. Des opérations mathématiques sophsitiquées comme la transformée de Fourier permette de réaliser une analyse spectrale, ce qui permet de détecter les pics d'énergie dans les basses fréquences (le "beat"). Des bibliothèques permettent de réaliser ces analyses (`kissfft` ou `pffft`), mais ce sont des opérations qui nécessitent un exposé un peu long qui appellent un atelier dédié. C’est un sujet passionnant car il peut avoir d’autres applications : l’analyse par transformée de Fourier et transformée cosinus font partie des prétraitements du son pour la reconnaissance vocale en machine learning par exemple. C’est aussi cette technique qui était utilisés pour les modules qu’on trouvait dans des lecteurs audio comme Winamp pour afficher des effets graphiques synchronisés avec le son. 
+
+Pour le présent atelier, la méthode manuelle est largement suffisante.
+
+#### Bruitages et ambiance sonore
+
+C’est un aspect qui va plus intéresser les créateurs de jeux vidéos, mais cela peut avoir un intérêt aussi pour les démos : ajouter des bruitages par dessus un morceau sans en interrompre la lecture. Cela nécessite de pouvoir *mixer* plusieurs sources sonores. Nous avonsde la chance : `miniaudio` gère nativement le mixage et permet donc de superposer sans difficulté un morceau qui joue en continu des effets sonores ponctuels, et cela sans avoir besoin de définir une configuration particulière. `ma_engine_play_sound` est non-bloquant et peut être appelé à tout moment depuis la boucle principale :
+
+```c
+// Déclenché sur un événement (touche, transition d'effet...)
+ma_engine_play_sound(&engine, "assets/woosh.wav", NULL);
+```
+
+Le volume de chaque bruitage est indépendant de la musique et peut être ajusté avec `ma_sound_set_volume`.
+
+> **Mise en application :** allez sur [modarchive.org](https://modarchive.org/) téléchargez un mod qui vous intéresse (vous pouvez écouter en ligne). Convertissez le en  `.ogg` ou`.flac` avec [Audacity](https://www.audacityteam.org/), puis jouez le sur un enchaînement d’effet programmé précédemment. Essayez de travailler la synchronisation (repérez les moments clés dans la timeline à l’aide d’Audacity). 
 
 ## Annexes
 
-### Récapitulatif des fonctions minifb utilisées
+### Récapitulatif des fonctions `minifb` utilisées
 
 | Fonction                        | Rôle                                              |
 |---------------------------------|---------------------------------------------------|
@@ -2046,7 +2312,7 @@ L’implémentation finale est ici aussi suffisamment simple pour qu’il soit i
 | `mfb_get_key_buffer(win)`       | Buffer d'état des touches (tableau d'octets)      |
 | `MFB_RGB(r, g, b)`              | Construit une couleur 32 bits                     |
 
-### Pistes de lecture pour aller plus loin
+### Ressources pour aller plus loin (effets graphiques, exemples de démo)
 
 - [lodev.org/cgtutor](https://lodev.org/cgtutor) : Tutoriels C/C++ (SDL) très courts mais très clairs sur de nombreux effets démo/rétro (fire effect le plasma…) et autres fondamentaux de la programmation graphique (niveaux, filtres, analyse spectrale, raycasting, etc.). Code plus ou moins directement transposable dans minifb.
 - [sizecoding.org](http://www.sizecoding.org/wiki/Main_Page) : Un wiki pour apprendre à créer des effets démos. Pseudocode, théorie et machines/cpu d’époque (ou modernes, y compris les fantasy consoles).
@@ -2058,4 +2324,45 @@ L’implémentation finale est ici aussi suffisamment simple pour qu’il soit i
   - [une sélection de démo Amiga (16bits)](https://www.youtube.com/watch?v=RPdB_zdyMbM&list=PLwds84NCmJadTeGeeXBzVuKWsdwi2Y6PB)
   - [une sélection de démos C64 (8bits, 64ko de mémoire )](https://www.youtube.com/watch?v=3crySbzOy-E&list=PLsyTxSTQmimQWnOddcGBXpbLjEPbN49GV)
   - [Pharmageddon, une démo sur une croix de pharmacie !](https://www.youtube.com/watch?v=Ea7pn92W-Kg)
+  - Des démo complètes peuvent sembler intimidantes par leur enchaînements d’effets, plus modestes, des intros ou des cracktros peuvent être une source d’inspiration plus accessibles. Par exemple voici [une collection de cracktro sur Amiga](https://www.youtube.com/watch?v=GPTkTobvsaw&list=PLDAE2D6D92098FF88)
 - Canaux Reddit : [r/creativecoding](https://www.reddit.com/r/creativecoding/), [r/computergraphics](https://www.reddit.com/r/computergraphics/) ou encore [r/Demoscene](https://www.reddit.com/r/Demoscene/) pour les plus généraux, chaque machine d’époque doit avoir des canaux dédiés.
+
+### Récapitulatif des fonctions `miniaudio` utilisées (son)
+
+| Fonction                                                     | Rôle                             |
+| ------------------------------------------------------------ | -------------------------------- |
+| `ma_engine_init(NULL, &engine)`                              | Initialise le moteur audio       |
+| `ma_engine_uninit(&engine)`                                  | Libère le moteur                 |
+| `ma_engine_play_sound(&engine, "f.wav", NULL)`               | Joue un son one-shot             |
+| `ma_engine_get_sample_rate(&engine)`                         | Fréquence d'échantillonnage (Hz) |
+| `ma_sound_init_from_file(&engine, "f.mp3", flags, NULL, NULL, &son)` | Charge un son avec contrôle      |
+| `ma_sound_start(&son)`                                       | Démarre la lecture               |
+| `ma_sound_stop(&son)`                                        | Met en pause                     |
+| `ma_sound_set_looping(&son, MA_TRUE)`                        | Active la boucle                 |
+| `ma_sound_set_volume(&son, 0.8f)`                            | Volume 0.0 à 1.0                 |
+| `ma_sound_set_pitch(&son, 1.2f)`                             | Pitch (1.0 = normal)             |
+| `ma_sound_get_cursor_in_pcm_frames(&son, &pos)`              | Position courante en frames PCM  |
+| `ma_sound_uninit(&son)`                                      | Libère le son                    |
+
+Flags utiles pour `ma_sound_init_from_file` :
+
+| Flag                              | Rôle                                                         |
+| --------------------------------- | ------------------------------------------------------------ |
+| `MA_SOUND_FLAG_STREAM`            | Lecture en streaming (recommandé pour les longs fichiers)    |
+| `MA_SOUND_FLAG_DECODE`            | Décode entièrement en mémoire (recommandé pour les courts bruitages) |
+| `MA_SOUND_FLAG_NO_SPATIALIZATION` | Désactive la spatialisation 3D (son "plat", recommandé pour la musique) |
+
+### Ressources pour aller plus loin (son)
+
+#### Documentation et code
+
+- [github.com/mackron/miniaudio](https://github.com/mackron/miniaudio) : dépôt officiel, documentation complète et nombreux exemples dans `examples/`
+- [miniaud.io](https://miniaud.io) : site officiel avec guide de démarrage rapide
+
+#### Sons et musiques libres de droit pour démos
+
+- [modarchive.org](https://modarchive.org/) : archive de fichiers MOD/XM/IT de la demoscene, libres de réutilisation pour des projets non-commerciaux. Des milliers de morceaux authentiques de la scène des années 90. Pour les lire avec miniaudio il faudra les convertir en MP3/OGG (Audacity le fait) ou utiliser libopenmpt.
+- [freemusicarchive.org](https://freemusicarchive.org/) : musique sous licences Creative Commons, tous genres (pas toujours adapté pour une démo, il faut fouiller).
+- [ccmixter.org](https://ccmixter.org/) : comme `freemusicarchive.org` mais plus orienté remixes et compositions électroniques sous Creative Commons, donc plus proches de l'esthétique demoscene.
+- [freesound.org](https://freesound.org/) : bibliothèque collaborative de sons sous Creative Commons : bruitages, ambiances, percussions. Plutôt pour les effets sonores, ou la création de morceau (avec un tracker)
+- [opengameart.org](https://opengameart.org/) : beaucoup d’assets (graphismes, spritesheets, sons et musiques) spécifiquement pensés pour les jeux et démos, majoritairement CC0 (domaine public).
