@@ -962,7 +962,7 @@ void dessiner_caractere(uint32_t *buf, int x, int y, char c, uint32_t couleur) {
     for (int ligne = 0; ligne < 8; ligne++) {
         uint8_t bits = font8x8_basic[(int)c][ligne];
         for (int col = 0; col < 8; col++) {
-            // voir la note ci-dessous pour une explication détailler du test de la condition suivante
+            // voir la note ci-dessous pour une explication détaillée du test de la condition suivante
             if (bits & (1 << col)) {
                 plot(buf, x + col, y + ligne, couleur); // on écrit les pixels dans le buffer à la position (x,y) en se décalant du nombre de pixel correspondant au parcorus de la grille/définition
             }
