@@ -113,12 +113,12 @@ set(CMAKE_C_STANDARD 11)
 # Inclusion de minifb comme sous-projet
 add_subdirectory(deps/minifb)
 
-# Indiquer où trouver les headers
-target_include_directories(demo PRIVATE src)
-
 # Exécutable (démo)
 add_executable(demo src/main.c)
 target_link_libraries(demo minifb)
+
+# Indiquer où trouver les headers
+target_include_directories(demo PRIVATE src)
 ```
 
 > Notre projet et cet atelier sera en C, mais on indique l’utilisation de C++ car `minifb` utilise un peu de C++ pour les callbacks (que l’on verra dans la gestion des inputs claviers ou souris)
