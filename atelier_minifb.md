@@ -432,9 +432,9 @@ mfb_set_mouse_move_callback(win, sur_souris_move);
 ```c
 void sur_souris_bouton(struct mfb_window *win, mfb_mouse_button bouton,
                        mfb_key_mod mod, bool appuyee) {
-    if (bouton == MOUSE_BTN_1 && appuyee) { /* clic gauche */ }
-    if (bouton == MOUSE_BTN_2 && appuyee) { /* clic droit  */ }
-    if (bouton == MOUSE_BTN_3 && appuyee) { /* clic milieu */ }
+    if (bouton == MFB_MOUSE_BTN_1 && appuyee) { /* clic gauche */ }
+    if (bouton == MFB_MOUSE_BTN_2 && appuyee) { /* clic droit  */ }
+    if (bouton == MFB_MOUSE_BTN_3 && appuyee) { /* clic milieu */ }
 }
 
 mfb_set_mouse_button_callback(win, sur_souris_bouton);
